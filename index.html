@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Route Map</title>
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <section class="sidebar-panel">
+          <header class="brand">
+            <div>
+              <h1>Sentus trips</h1>
+            </div>
+            <button class="icon-button" id="fit-all" type="button" title="Показать все маршруты" aria-label="Показать все маршруты">
+              <span aria-hidden="true">⌖</span>
+            </button>
+          </header>
+
+          <label class="drop-zone" id="drop-zone">
+            <input id="file-input" type="file" accept=".gpx,.fit" multiple />
+            <span class="drop-title">Загрузить GPX или FIT</span>
+            <span class="drop-subtitle">Перетащите файлы сюда или выберите на диске</span>
+          </label>
+
+          <section class="summary" id="route-summary" aria-live="polite"></section>
+          <button class="group-add-button" id="add-group" type="button">Добавить группу</button>
+
+        </section>
+
+        <ol class="route-list" id="route-list" aria-label="Список маршрутов"></ol>
+      </aside>
+
+      <main class="map-shell">
+        <div class="basemap-switcher" aria-label="Подложка карты">
+          <button type="button" data-basemap="osm">OSM</button>
+          <button type="button" data-basemap="positron">Positron</button>
+          <button type="button" class="is-active" data-basemap="colorful">Colorful</button>
+        </div>
+        <div id="map"></div>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
