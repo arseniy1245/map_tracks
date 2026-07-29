@@ -77,6 +77,12 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (groupSettingsMatch && request.method === 'DELETE') {
+    await deleteGroupSettings(decodeURIComponent(groupSettingsMatch[1]));
+    sendJson(response, { ok: true });
+    return;
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/routes') {
     const savedRoute = await createRoute(request);
     sendJson(response, savedRoute, 201);
@@ -209,16 +215,23 @@ async function updateGroupSettings(type, request) {
     label: normalizeOptionalString(patch.label, current.label || type),
     color: normalizeColor(patch.color, current.color),
     lineWidth: normalizeLineWidth(patch.lineWidth, current.lineWidth),
+    lineStyle: normalizeLineStyle(patch.lineStyle, current.lineStyle),
   };
 
   await writeGroupSettings(settings);
   return settings[type];
 }
 
+async function deleteGroupSettings(type) {
+  const settings = await readGroupSettings();
+  delete settings[type];
+  await writeGroupSettings(settings);
+}
+
 function normalizeRoute(route) {
   const name = String(route.name || 'route').trim() || 'route';
   const routeDate = normalizeDate(route.routeDate || route.date);
-  const routeType = String(route.routeType || 'bicycle');
+  const routeType = String(route.routeType || route.id || randomUUID());
 
   return {
     ...route,
@@ -365,7 +378,7 @@ function normalizeOptionalString(value, fallback) {
   return text || fallback;
 }
 
-function normalizeColor(value, fallback = '#0f8b8d') {
+function normalizeColor(value, fallback = '#E4F081') {
   const text = typeof value === 'string' ? value.trim() : '';
   return /^#[0-9a-f]{6}$/i.test(text) ? text : fallback;
 }
@@ -373,6 +386,10 @@ function normalizeColor(value, fallback = '#0f8b8d') {
 function normalizeLineWidth(value, fallback = 1) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.min(3, Math.max(0.4, numeric)) : fallback;
+}
+
+function normalizeLineStyle(value, fallback = 'solid') {
+  return value === 'dashed' || value === 'solid' ? value : fallback;
 }
 
 async function makeStoredFileName(routeDate, routeName, extension, currentName = null) {

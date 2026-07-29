@@ -3,8 +3,13 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles.css';
 
 const routeSourceId = 'uploaded-routes';
-const routeLayerId = 'route-lines';
-const colors = ['#0f8b8d', '#e4572e', '#3f7cac', '#a23e48', '#2e933c', '#7b2cbf', '#f2a900', '#006d77'];
+const homeVeilSourceId = 'home-map-veil-source';
+const homeVeilLayerId = 'home-map-veil';
+const routeSolidLayerId = 'route-lines-solid';
+const routeDashedLayerId = 'route-lines-dashed';
+const colors = ['#2f3432', '#e4572e', '#3f7cac', '#a23e48', '#2e933c', '#7b2cbf', '#5f6f89', '#006d77'];
+const extendedColors = ['#1f2937', '#475569', '#0f766e', '#14b8a6', '#2563eb', '#38bdf8', '#9333ea', '#c084fc', '#be123c', '#f43f5e', '#b45309', '#f97316', '#ca8a04', '#eab308', '#4d7c0f', '#84cc16'];
+const grayscaleColors = ['#000000', '#242424', '#444444', '#666666', '#888888', '#aaaaaa', '#c6c6c6', '#e2e2e2'];
 const basemaps = {
   osm: {
     label: 'OSM',
@@ -38,15 +43,20 @@ const basemaps = {
   },
 };
 
-const routeTypes = [
-  { value: 'bicycle', label: 'Велосипед' },
-  { value: 'walk', label: 'Пешком' },
-  { value: 'run', label: 'Бег' },
-  { value: 'car', label: 'Авто' },
-  { value: 'train', label: 'Поезд' },
-  { value: 'plane', label: 'Самолет' },
-  { value: 'boat', label: 'Лодка' },
-  { value: 'other', label: 'Другое' },
+const calendarWeekdays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const calendarMonths = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 const state = {
@@ -58,15 +68,24 @@ const state = {
   openMenuGroupType: null,
   openMenuAnchor: null,
   basemap: 'colorful',
+  layersCollapsed: false,
 };
 
 const elements = {
+  app: document.querySelector('#app'),
+  sidebar: document.querySelector('#layers-panel'),
   input: document.querySelector('#file-input'),
   dropZone: document.querySelector('#drop-zone'),
   list: document.querySelector('#route-list'),
   summary: document.querySelector('#route-summary'),
   fitAll: document.querySelector('#fit-all'),
+  toggleLayers: document.querySelector('#toggle-layers'),
   groupAdd: document.querySelector('#add-group'),
+  mapShell: document.querySelector('.map-shell'),
+  openMap: document.querySelector('#open-map'),
+  zoomIn: document.querySelector('#zoom-in'),
+  zoomOut: document.querySelector('#zoom-out'),
+  resetNorth: document.querySelector('#reset-north'),
   basemapButtons: [...document.querySelectorAll('[data-basemap]')],
 };
 
@@ -78,9 +97,6 @@ const map = new maplibregl.Map({
   maxPitch: 65,
   antialias: false,
 });
-
-map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
-map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-right');
 
 map.on('load', async () => {
   ensureRouteLayer();
@@ -99,6 +115,9 @@ map.on('styledata', () => {
   }
 });
 
+map.on('rotate', updateNorthButton);
+map.on('pitch', updateNorthButton);
+
 function ensureRouteLayer() {
   if (!map.isStyleLoaded()) {
     return;
@@ -113,24 +132,76 @@ function ensureRouteLayer() {
     });
   }
 
-  if (map.getLayer(routeLayerId)) {
-    return;
+  if (!map.getSource(homeVeilSourceId)) {
+    map.addSource(homeVeilSourceId, {
+      type: 'geojson',
+      data: {
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[
+            [-180, -85],
+            [180, -85],
+            [180, 85],
+            [-180, 85],
+            [-180, -85],
+          ]],
+        },
+        properties: {},
+      },
+    });
   }
 
-  map.addLayer({
-    id: routeLayerId,
-    type: 'line',
-    source: routeSourceId,
-    paint: {
-      'line-color': ['get', 'color'],
-      'line-width': ['get', 'lineWidthPx'],
-      'line-opacity': ['case', ['==', ['get', 'isSelected'], true], 1, 0.78],
-    },
-    layout: {
-      'line-cap': 'round',
-      'line-join': 'round',
-    },
-  });
+  if (!map.getLayer(homeVeilLayerId)) {
+    map.addLayer({
+      id: homeVeilLayerId,
+      type: 'fill',
+      source: homeVeilSourceId,
+      paint: {
+        'fill-color': '#ffffff',
+        'fill-opacity': 0,
+      },
+    }, map.getLayer(routeSolidLayerId) ? routeSolidLayerId : undefined);
+  }
+
+  if (!map.getLayer(routeSolidLayerId)) {
+    map.addLayer({
+      id: routeSolidLayerId,
+      type: 'line',
+      source: routeSourceId,
+      filter: ['!=', ['get', 'isDashed'], true],
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': ['get', 'lineWidthPx'],
+        'line-opacity': ['case', ['==', ['get', 'isSelected'], true], 1, 0.78],
+      },
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
+    });
+  }
+
+  if (!map.getLayer(routeDashedLayerId)) {
+    map.addLayer({
+      id: routeDashedLayerId,
+      type: 'line',
+      source: routeSourceId,
+      filter: ['==', ['get', 'isDashed'], true],
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': ['get', 'lineWidthPx'],
+        'line-opacity': ['case', ['==', ['get', 'isSelected'], true], 1, 0.78],
+        'line-dasharray': [1.4, 1.1],
+      },
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
+    });
+  }
+
+  applyMapModePaint();
 }
 
 elements.input.addEventListener('change', (event) => {
@@ -153,7 +224,8 @@ elements.dropZone.addEventListener('drop', (event) => {
   handleFiles([...event.dataTransfer.files]);
 });
 
-elements.fitAll.addEventListener('click', fitAllRoutes);
+elements.fitAll?.addEventListener('click', fitAllRoutes);
+elements.toggleLayers.addEventListener('click', toggleLayersPanel);
 elements.groupAdd.addEventListener('click', (event) => {
   event.stopPropagation();
   openCreateGroupMenu(elements.groupAdd);
@@ -161,6 +233,13 @@ elements.groupAdd.addEventListener('click', (event) => {
 elements.basemapButtons.forEach((button) => {
   button.addEventListener('click', () => setBasemap(button.dataset.basemap));
 });
+elements.zoomIn.addEventListener('click', () => map.zoomIn({ duration: 280 }));
+elements.zoomOut.addEventListener('click', () => map.zoomOut({ duration: 280 }));
+elements.resetNorth.addEventListener('click', () => {
+  map.easeTo({ bearing: 0, pitch: 0, duration: 360 });
+});
+elements.openMap.addEventListener('click', enterMapMode);
+initTooltips();
 document.addEventListener('click', (event) => {
   const menu = document.querySelector('.floating-menu');
   const clickedInsideMenu = menu?.contains(event.target);
@@ -172,6 +251,149 @@ document.addEventListener('click', (event) => {
 });
 window.addEventListener('resize', positionFloatingMenu);
 elements.list.addEventListener('scroll', positionFloatingMenu);
+
+function initTooltips() {
+  const tooltip = document.createElement('div');
+  let activeTarget = null;
+
+  tooltip.className = 'site-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  document.body.append(tooltip);
+
+  const showTooltip = (target) => {
+    const text = target.dataset.tooltip;
+
+    if (!text) {
+      return;
+    }
+
+    activeTarget = target;
+    tooltip.textContent = text;
+    tooltip.classList.add('is-visible');
+    positionTooltip();
+  };
+
+  const hideTooltip = () => {
+    activeTarget = null;
+    tooltip.classList.remove('is-visible');
+  };
+
+  const positionTooltip = () => {
+    if (!activeTarget || !document.body.contains(activeTarget)) {
+      hideTooltip();
+      return;
+    }
+
+    const rect = activeTarget.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const gap = 8;
+    const viewportGap = 10;
+    const hasRoomAbove = rect.top >= tooltipRect.height + gap + viewportGap;
+    const preferredTop = hasRoomAbove ? rect.top - tooltipRect.height - gap : rect.bottom + gap;
+    const preferredLeft = rect.left + rect.width / 2 - tooltipRect.width / 2;
+    const left = Math.min(
+      Math.max(viewportGap, preferredLeft),
+      window.innerWidth - tooltipRect.width - viewportGap,
+    );
+    const top = Math.min(
+      Math.max(viewportGap, preferredTop),
+      window.innerHeight - tooltipRect.height - viewportGap,
+    );
+
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    tooltip.dataset.placement = hasRoomAbove ? 'top' : 'bottom';
+  };
+
+  document.addEventListener('pointerover', (event) => {
+    const target = event.target.closest?.('[data-tooltip]');
+
+    if (target) {
+      showTooltip(target);
+    }
+  });
+
+  document.addEventListener('pointerout', (event) => {
+    if (activeTarget && !activeTarget.contains(event.relatedTarget)) {
+      hideTooltip();
+    }
+  });
+
+  document.addEventListener('focusin', (event) => {
+    const target = event.target.closest?.('[data-tooltip]');
+
+    if (target) {
+      showTooltip(target);
+    }
+  });
+
+  document.addEventListener('focusout', hideTooltip);
+  window.addEventListener('resize', positionTooltip);
+  window.addEventListener('scroll', positionTooltip, true);
+}
+
+function enterMapMode() {
+  if (!elements.app.classList.contains('is-home')) {
+    return;
+  }
+
+  elements.app.classList.remove('is-home');
+  elements.app.classList.add('is-map');
+  closeFloatingMenu();
+  requestAnimationFrame(() => {
+    map.resize();
+    applyMapModePaint();
+    scheduleRoutesRender();
+  });
+}
+
+function toggleLayersPanel() {
+  setLayersPanelCollapsed(!state.layersCollapsed);
+}
+
+function setLayersPanelCollapsed(collapsed) {
+  state.layersCollapsed = collapsed;
+  elements.app.classList.toggle('is-layers-collapsed', collapsed);
+  elements.toggleLayers.setAttribute('aria-expanded', String(!collapsed));
+  elements.toggleLayers.setAttribute('aria-label', collapsed ? 'Expand layers panel' : 'Collapse layers panel');
+  elements.toggleLayers.dataset.tooltip = collapsed ? 'Expand layers' : 'Collapse layers';
+  closeFloatingMenu();
+
+  requestAnimationFrame(() => {
+    map.resize();
+  });
+}
+
+function updateNorthButton() {
+  const bearing = map.getBearing();
+  const pitch = map.getPitch();
+  elements.resetNorth.style.setProperty('--map-bearing', `${-bearing}deg`);
+  elements.resetNorth.classList.toggle('is-active', Math.abs(bearing) > 0.5 || pitch > 0.5);
+}
+
+function applyMapModePaint() {
+  if (!map.isStyleLoaded()) {
+    return;
+  }
+
+  const isHome = elements.app.classList.contains('is-home');
+  if (map.getLayer(homeVeilLayerId)) {
+    map.setPaintProperty(homeVeilLayerId, 'fill-opacity', isHome ? 0.88 : 0);
+  }
+
+  [routeSolidLayerId, routeDashedLayerId].forEach((layerId) => {
+    if (!map.getLayer(layerId)) {
+      return;
+    }
+
+    map.setPaintProperty(layerId, 'line-color', isHome ? '#2f3432' : ['get', 'color']);
+    map.setPaintProperty(
+      layerId,
+      'line-opacity',
+      isHome ? 0.96 : ['case', ['==', ['get', 'isSelected'], true], 1, 0.78],
+    );
+  });
+}
 
 function setBasemap(name) {
   if (!basemaps[name] || state.basemap === name) {
@@ -267,7 +489,7 @@ async function parseRouteFile(file) {
     : await parseFit(await file.arrayBuffer());
 
   if (!parsed.segments.length) {
-    throw new Error(`${file.name}: нет точек маршрута`);
+    throw new Error(`${file.name}: no route points`);
   }
 
   const id = crypto.randomUUID();
@@ -276,6 +498,7 @@ async function parseRouteFile(file) {
   const stats = calculateStats(parsed.segments);
   const routeDate = formatInputDate(stats.startedAt) || todayInputDate();
   const color = colors[state.routes.length % colors.length];
+  const routeType = `route_${id}`;
 
   return {
     id,
@@ -283,7 +506,7 @@ async function parseRouteFile(file) {
     color,
     fileType: ext.toUpperCase(),
     routeDate,
-    routeType: 'bicycle',
+    routeType,
     visible: true,
     originalFileName: file.name,
     distanceKm: stats.distanceKm,
@@ -300,7 +523,7 @@ async function parseRouteFile(file) {
         id,
         name,
         color,
-        routeType: 'bicycle',
+        routeType,
         isSelected: false,
       },
       geometry: {
@@ -315,7 +538,7 @@ function parseGpx(text) {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
 
   if (doc.querySelector('parsererror')) {
-    throw new Error('GPX файл поврежден');
+    throw new Error('GPX file is damaged');
   }
 
   const segments = [...doc.querySelectorAll('trkseg')]
@@ -355,7 +578,7 @@ async function parseFit(buffer) {
   const decoder = new Decoder(stream);
 
   if (!decoder.isFIT()) {
-    throw new Error('Это не FIT файл');
+    throw new Error('This is not a FIT file');
   }
 
   const { messages, errors } = decoder.read();
@@ -423,7 +646,7 @@ function renderSidebar() {
   const groups = groupRoutesByType(state.routes)
     .map((group) => ({
       ...group,
-      routes: state.routes.filter((route) => (route.routeType || 'other') === group.type),
+      routes: state.routes.filter((route) => routeGroupType(route) === group.type),
     }))
     .filter((group) => group.routes.length);
 
@@ -444,8 +667,9 @@ function renderRouteGroup(group) {
   const header = document.createElement('div');
   header.className = 'route-group-header';
   header.innerHTML = `
+    <span class="route-group-count">${group.routes.length}</span>
     <span class="route-group-title">${escapeHtml(group.label)}</span>
-    <span class="route-group-meta">${group.routes.length} ${pluralTrack(group.routes.length)} · ${formatDistance(group.distanceKm)}</span>
+    <span class="route-group-meta">${formatDistance(group.distanceKm)}</span>
   `;
 
   const list = document.createElement('div');
@@ -466,10 +690,10 @@ function renderRouteCard(route) {
   button.type = 'button';
   button.addEventListener('click', () => selectRoute(route.id));
   button.innerHTML = `
-    <span class="route-distance">${formatDistance(route.distanceKm)}</span>
+    <span class="route-distance">${formatLayerDistance(route.distanceKm)}</span>
     <span class="route-main">
       <strong>${escapeHtml(route.name)}</strong>
-      <span>${routeTypeLabel(route.routeType)} · ${formatDate(route.routeDate)} · ${route.pointCount.toLocaleString('ru-RU')} точек</span>
+      <span>${routeGroupLabel(route)} · ${formatDate(route.routeDate)} · ${route.pointCount.toLocaleString('ru-RU')} points</span>
     </span>
   `;
 
@@ -477,16 +701,16 @@ function renderRouteCard(route) {
   visibility.className = `route-visibility${route.visible ? ' is-visible' : ''}`;
   visibility.type = 'button';
   visibility.setAttribute('aria-pressed', String(route.visible));
-  visibility.setAttribute('aria-label', route.visible ? `Скрыть ${route.name}` : `Показать ${route.name}`);
-  visibility.title = route.visible ? 'Скрыть слой' : 'Показать слой';
+  visibility.setAttribute('aria-label', route.visible ? `Hide ${route.name}` : `Show ${route.name}`);
+  visibility.dataset.tooltip = route.visible ? 'Hide layer' : 'Show layer';
   visibility.innerHTML = route.visible ? eyeIcon() : eyeOffIcon();
   visibility.addEventListener('click', () => toggleRouteVisibility(route.id, !route.visible));
 
   const menuButton = document.createElement('button');
   menuButton.className = 'route-menu-trigger';
   menuButton.type = 'button';
-  menuButton.title = 'Данные маршрута';
-  menuButton.setAttribute('aria-label', `Данные маршрута ${route.name}`);
+  menuButton.dataset.tooltip = 'Route details';
+  menuButton.setAttribute('aria-label', `Route details ${route.name}`);
   menuButton.setAttribute('aria-expanded', String(state.openMenuRouteId === route.id));
   menuButton.innerHTML = dotsIcon();
   menuButton.addEventListener('click', (event) => {
@@ -504,37 +728,33 @@ function renderRouteSummary() {
   if (!groups.length) {
     elements.summary.innerHTML = `
       <div class="summary-empty">
-        <span>Нет маршрутов</span>
+        <span>No routes</span>
       </div>
     `;
     return;
   }
 
   elements.summary.replaceChildren(...groups.map((group) => {
-    const row = document.createElement('div');
+    const row = document.createElement('button');
     row.className = 'summary-row';
+    row.type = 'button';
+    row.dataset.tooltip = 'Group settings';
+    row.setAttribute('aria-label', `Group settings ${group.label}`);
+    row.setAttribute('aria-expanded', String(state.openMenuGroupType === group.type));
+    row.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleGroupMenu(group.type, row);
+    });
 
     const content = document.createElement('div');
     content.className = 'summary-content';
     content.innerHTML = `
       <span class="summary-type">${escapeHtml(group.label)}</span>
-      <span class="summary-distance">${formatDistance(group.distanceKm)}</span>
+      <span class="summary-distance">${formatSummaryDistance(group.distanceKm)}</span>
       <span class="summary-count">${group.count}</span>
     `;
 
-    const menuButton = document.createElement('button');
-    menuButton.className = 'summary-menu-trigger';
-    menuButton.type = 'button';
-    menuButton.title = 'Настройки группы';
-    menuButton.setAttribute('aria-label', `Настройки группы ${group.label}`);
-    menuButton.setAttribute('aria-expanded', String(state.openMenuGroupType === group.type));
-    menuButton.innerHTML = dotsIcon();
-    menuButton.addEventListener('click', (event) => {
-      event.stopPropagation();
-      toggleGroupMenu(group.type, menuButton);
-    });
-
-    row.append(content, menuButton);
+    row.append(content);
     return row;
   }));
 }
@@ -548,18 +768,20 @@ function groupRoutesByType(routes) {
       label: groupLabel(type),
       color: groupColor(type),
       lineWidth: groupLineWidth(type),
+      lineStyle: groupLineStyle(type),
       distanceKm: 0,
       count: 0,
     });
   });
 
   routes.forEach((route) => {
-    const type = route.routeType || 'other';
+    const type = routeGroupType(route);
     const current = groups.get(type) || {
       type,
-      label: groupLabel(type),
+      label: routeGroupLabel(route),
       color: groupColor(type, route.color),
       lineWidth: groupLineWidth(type),
+      lineStyle: groupLineStyle(type),
       distanceKm: 0,
       count: 0,
     };
@@ -569,12 +791,13 @@ function groupRoutesByType(routes) {
     groups.set(type, current);
   });
 
-  const order = new Map(routeTypes.map((type, index) => [type.value, index]));
   return [...groups.values()].sort((a, b) => {
-    const aIndex = order.get(a.type) ?? 999;
-    const bIndex = order.get(b.type) ?? 999;
-    return aIndex - bIndex || a.label.localeCompare(b.label, 'ru');
+    return a.label.localeCompare(b.label, 'en');
   });
+}
+
+function routeGroupOptions() {
+  return groupRoutesByType(state.routes);
 }
 
 function selectRoute(id) {
@@ -631,7 +854,7 @@ async function saveRouteDetails(event) {
   const patch = {
     name: String(formData.get('name') || '').trim(),
     routeDate: String(formData.get('routeDate') || ''),
-    routeType: String(formData.get('routeType') || 'other'),
+    routeType: String(formData.get('routeType') || routeGroupType(route)),
     distanceKm: Number(formData.get('distanceKm')),
   };
 
@@ -651,6 +874,29 @@ async function saveRouteDetails(event) {
   }
 }
 
+async function deleteRouteLayer(id) {
+  const route = state.routes.find((item) => item.id === id);
+
+  if (!route) {
+    return;
+  }
+
+  try {
+    await api(`/api/routes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    state.routes = state.routes.filter((item) => item.id !== id);
+
+    if (state.selectedId === id) {
+      state.selectedId = state.routes.find((item) => item.visible)?.id || state.routes[0]?.id || null;
+    }
+
+    scheduleRoutesRender();
+    closeFloatingMenu();
+    renderSidebar();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 async function saveGroupDetails(event) {
   event.preventDefault();
 
@@ -661,9 +907,10 @@ async function saveGroupDetails(event) {
     label: String(formData.get('label') || '').trim(),
     color: String(formData.get('color') || ''),
     lineWidth: Number(formData.get('lineWidth')),
+    lineStyle: String(formData.get('lineStyle') || 'solid'),
   };
 
-  if (!patch.label || !/^#[0-9a-f]{6}$/i.test(patch.color) || !Number.isFinite(patch.lineWidth)) {
+  if (!patch.label || !/^#[0-9a-f]{6}$/i.test(patch.color) || !Number.isFinite(patch.lineWidth) || !isLineStyle(patch.lineStyle)) {
     return;
   }
 
@@ -677,6 +924,33 @@ async function saveGroupDetails(event) {
     state.routes
       .filter((route) => route.routeType === type)
       .forEach(applyGroupStyleToRoute);
+    scheduleRoutesRender();
+    closeFloatingMenu();
+    renderSidebar();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function deleteRouteGroup(type) {
+  const routesToDelete = state.routes.filter((route) => routeGroupType(route) === type);
+
+  try {
+    await Promise.all(routesToDelete.map((route) => api(`/api/routes/${encodeURIComponent(route.id)}`, { method: 'DELETE' })));
+
+    try {
+      await api(`/api/group-settings/${encodeURIComponent(type)}`, { method: 'DELETE' });
+    } catch (error) {
+      console.warn('Group settings delete failed', error);
+    }
+
+    state.routes = state.routes.filter((route) => routeGroupType(route) !== type);
+    delete state.groupSettings[type];
+
+    if (!state.routes.some((route) => route.id === state.selectedId)) {
+      state.selectedId = state.routes.find((route) => route.visible)?.id || state.routes[0]?.id || null;
+    }
+
     scheduleRoutesRender();
     closeFloatingMenu();
     renderSidebar();
@@ -705,7 +979,10 @@ function openRouteMenu(routeId, anchor) {
   const menu = document.createElement('div');
   menu.className = 'floating-menu route-menu-popover';
   menu.innerHTML = routeMenuTemplate(route);
+  initRouteTypeDropdown(menu);
+  initRouteDatePicker(menu);
   menu.querySelector('form').addEventListener('submit', saveRouteDetails);
+  menu.querySelector('[data-route-delete]')?.addEventListener('click', () => deleteRouteLayer(routeId));
   document.body.append(menu);
 
   state.openMenuRouteId = routeId;
@@ -736,7 +1013,10 @@ function openGroupMenu(type, anchor) {
   const menu = document.createElement('div');
   menu.className = 'floating-menu group-menu-popover';
   menu.innerHTML = groupMenuTemplate(group);
+  initGroupColorPicker(menu);
+  initLineWidthControl(menu);
   menu.querySelector('form').addEventListener('submit', saveGroupDetails);
+  menu.querySelector('[data-group-delete]')?.addEventListener('click', () => deleteRouteGroup(type));
   document.body.append(menu);
 
   state.openMenuRouteId = null;
@@ -752,16 +1032,20 @@ function openCreateGroupMenu(anchor) {
 
   const group = {
     type: createGroupType(),
-    label: 'Новая группа',
+    label: 'New group',
     color: colors[Object.keys(state.groupSettings).length % colors.length],
     lineWidth: 1,
+    lineStyle: 'solid',
     distanceKm: 0,
     count: 0,
   };
   const menu = document.createElement('div');
   menu.className = 'floating-menu group-menu-popover';
   menu.innerHTML = groupMenuTemplate(group);
+  initGroupColorPicker(menu);
+  initLineWidthControl(menu);
   menu.querySelector('form').addEventListener('submit', saveGroupDetails);
+  menu.querySelector('[data-group-delete]')?.addEventListener('click', () => deleteRouteGroup(group.type));
   document.body.append(menu);
 
   state.openMenuRouteId = null;
@@ -796,9 +1080,29 @@ function positionFloatingMenu() {
 
   const rect = anchor.getBoundingClientRect();
   const menuRect = menu.getBoundingClientRect();
-  const gap = 6;
   const viewportGap = 10;
-  const left = Math.min(rect.right + gap, window.innerWidth - menuRect.width - viewportGap);
+
+  if (menu.classList.contains('group-menu-popover')) {
+    const gap = 8;
+    const preferredLeft = rect.left;
+    const left = Math.min(
+      Math.max(viewportGap, preferredLeft),
+      window.innerWidth - menuRect.width - viewportGap,
+    );
+    const top = Math.min(
+      rect.bottom + gap,
+      window.innerHeight - menuRect.height - viewportGap,
+    );
+
+    menu.style.left = `${left}px`;
+    menu.style.top = `${Math.max(viewportGap, top)}px`;
+    return;
+  }
+
+  const gap = menu.classList.contains('route-menu-popover') ? 44 : 18;
+  const opensLeft = rect.left > window.innerWidth - rect.right;
+  const preferredLeft = opensLeft ? rect.left - menuRect.width - gap : rect.right + gap;
+  const left = Math.min(preferredLeft, window.innerWidth - menuRect.width - viewportGap);
   const top = Math.min(
     Math.max(viewportGap, rect.top),
     window.innerHeight - menuRect.height - viewportGap,
@@ -808,30 +1112,330 @@ function positionFloatingMenu() {
   menu.style.top = `${top}px`;
 }
 
+function initRouteTypeDropdown(menu) {
+  const dropdown = menu.querySelector('.type-dropdown');
+  const trigger = dropdown?.querySelector('.type-dropdown-trigger');
+  const list = dropdown?.querySelector('.type-dropdown-list');
+  const options = [...(dropdown?.querySelectorAll('.type-dropdown-option') || [])];
+  const input = menu.querySelector('input[name="routeType"]');
+  const closeDuration = 520;
+  let closeTimer = null;
+
+  if (!dropdown || !trigger || !list || !input || !options.length) {
+    return;
+  }
+
+  const updateDropdownHeight = () => {
+    const optionHeight = 34;
+    const gap = 4;
+    const padding = 16;
+    const contentHeight = options.length * optionHeight + Math.max(0, options.length - 1) * gap + padding;
+    dropdown.style.setProperty('--type-dropdown-height', `${Math.min(contentHeight, 420)}px`);
+  };
+
+  const openDropdown = () => {
+    window.clearTimeout(closeTimer);
+    updateDropdownHeight();
+    dropdown.classList.remove('is-closing');
+    dropdown.classList.add('is-open');
+    trigger.setAttribute('aria-expanded', 'true');
+    positionFloatingMenu();
+  };
+
+  const closeDropdown = () => {
+    if (!dropdown.classList.contains('is-open')) {
+      return;
+    }
+
+    window.clearTimeout(closeTimer);
+    dropdown.classList.add('is-closing');
+    trigger.setAttribute('aria-expanded', 'false');
+    closeTimer = window.setTimeout(() => {
+      dropdown.classList.remove('is-open', 'is-closing');
+      positionFloatingMenu();
+    }, closeDuration);
+  };
+
+  trigger.addEventListener('click', () => {
+    if (dropdown.classList.contains('is-open') && !dropdown.classList.contains('is-closing')) {
+      closeDropdown();
+    } else {
+      openDropdown();
+    }
+  });
+
+  menu.addEventListener('click', (event) => {
+    if (!dropdown.contains(event.target)) {
+      closeDropdown();
+    }
+  });
+
+  options.forEach((option) => {
+    option.addEventListener('click', () => {
+      input.value = option.dataset.value;
+      trigger.querySelector('span').textContent = option.textContent;
+      options.forEach((item) => item.classList.toggle('is-selected', item === option));
+      closeDropdown();
+    });
+  });
+}
+
+function initRouteDatePicker(menu) {
+  const picker = menu.querySelector('.calendar-picker');
+  const trigger = picker?.querySelector('.calendar-trigger');
+  const value = picker?.querySelector('.calendar-trigger-value');
+  const panel = picker?.querySelector('.calendar-panel');
+  const input = menu.querySelector('input[name="routeDate"]');
+  const closeDuration = 520;
+  let closeTimer = null;
+
+  if (!picker || !trigger || !value || !panel || !input) {
+    return;
+  }
+
+  let selectedDate = parseInputDate(input.value) || new Date();
+  let viewDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+
+  const updateCalendarHeight = () => {
+    const height = Math.min(panel.scrollHeight + 20, 360);
+    picker.style.setProperty('--calendar-panel-height', `${height}px`);
+  };
+
+  const closeCalendar = () => {
+    if (!picker.classList.contains('is-open')) {
+      return;
+    }
+
+    window.clearTimeout(closeTimer);
+    picker.classList.add('is-closing');
+    trigger.setAttribute('aria-expanded', 'false');
+    closeTimer = window.setTimeout(() => {
+      picker.classList.remove('is-open', 'is-closing');
+      positionFloatingMenu();
+    }, closeDuration);
+  };
+
+  const openCalendar = () => {
+    window.clearTimeout(closeTimer);
+    renderCalendar();
+    updateCalendarHeight();
+    picker.classList.remove('is-closing');
+    picker.classList.add('is-open');
+    trigger.setAttribute('aria-expanded', 'true');
+    positionFloatingMenu();
+  };
+
+  const renderCalendar = () => {
+    panel.innerHTML = calendarTemplate(viewDate, selectedDate);
+  };
+
+  trigger.addEventListener('click', () => {
+    if (picker.classList.contains('is-open')) {
+      closeCalendar();
+    } else {
+      openCalendar();
+    }
+  });
+
+  trigger.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeCalendar();
+    }
+  });
+
+  panel.addEventListener('click', (event) => {
+    event.stopPropagation();
+
+    const action = event.target.closest('[data-calendar-action]');
+    const day = event.target.closest('[data-calendar-date]');
+
+    if (action) {
+      const direction = action.dataset.calendarAction === 'next' ? 1 : -1;
+      viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + direction, 1);
+      renderCalendar();
+      updateCalendarHeight();
+      positionFloatingMenu();
+      return;
+    }
+
+    if (day) {
+      selectedDate = parseInputDate(day.dataset.calendarDate) || selectedDate;
+      input.value = formatInputDateLocal(selectedDate);
+      value.textContent = formatCalendarDate(selectedDate);
+      viewDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+      closeCalendar();
+      trigger.focus();
+    }
+  });
+
+  menu.addEventListener('click', (event) => {
+    const path = event.composedPath?.() || [];
+
+    if (!path.includes(picker) && !picker.contains(event.target)) {
+      closeCalendar();
+    }
+  });
+
+  value.textContent = formatCalendarDate(selectedDate);
+  input.value = formatInputDateLocal(selectedDate);
+  renderCalendar();
+  updateCalendarHeight();
+}
+
+function initGroupColorPicker(menu) {
+  const picker = menu.querySelector('.color-picker');
+  const trigger = picker?.querySelector('.color-picker-trigger');
+  const swatch = picker?.querySelector('.color-picker-trigger-swatch');
+  const value = picker?.querySelector('.color-picker-value');
+  const input = menu.querySelector('input[name="color"]');
+  const options = [...(picker?.querySelectorAll('.color-picker-option') || [])];
+
+  if (!picker || !trigger || !swatch || !value || !input || !options.length) {
+    return;
+  }
+
+  const setColor = (color) => {
+    input.value = color;
+    value.textContent = color.toUpperCase();
+    swatch.style.setProperty('--selected-color', color);
+    options.forEach((option) => option.classList.toggle('is-selected', option.dataset.color === color));
+  };
+
+  const closePicker = () => {
+    picker.classList.remove('is-open');
+    trigger.setAttribute('aria-expanded', 'false');
+    positionFloatingMenu();
+  };
+
+  trigger.addEventListener('click', () => {
+    const isOpen = picker.classList.toggle('is-open');
+    trigger.setAttribute('aria-expanded', String(isOpen));
+    positionFloatingMenu();
+  });
+
+  menu.addEventListener('click', (event) => {
+    if (!picker.contains(event.target)) {
+      closePicker();
+    }
+  });
+
+  options.forEach((option) => {
+    option.addEventListener('click', () => {
+      setColor(option.dataset.color);
+      closePicker();
+      trigger.focus();
+    });
+  });
+
+  setColor(input.value);
+}
+
+function initLineWidthControl(menu) {
+  const input = menu.querySelector('input[name="lineWidth"]');
+  const value = menu.querySelector('[data-line-width-value]');
+
+  if (!input || !value) {
+    return;
+  }
+
+  const updateValue = () => {
+    value.textContent = `${formatLineWidthValue(input.value)} px`;
+  };
+
+  input.addEventListener('input', updateValue);
+  updateValue();
+}
+
+function calendarTemplate(viewDate, selectedDate) {
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startOffset = (firstDay.getDay() + 6) % 7;
+  const startDate = new Date(year, month, 1 - startOffset);
+  const today = new Date();
+  const selectedIso = formatInputDateLocal(selectedDate);
+  const todayIso = formatInputDateLocal(today);
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(startDate);
+    date.setDate(startDate.getDate() + index);
+    const iso = formatInputDateLocal(date);
+    const classes = [
+      'calendar-day',
+      date.getMonth() !== month ? 'is-muted' : '',
+      iso === selectedIso ? 'is-selected' : '',
+      iso === todayIso ? 'is-today' : '',
+    ].filter(Boolean).join(' ');
+
+    return `
+      <button class="${classes}" type="button" data-calendar-date="${iso}" aria-label="${escapeAttribute(formatCalendarDate(date))}">
+        ${date.getDate()}
+      </button>
+    `;
+  }).join('');
+
+  return `
+    <div class="calendar-header">
+      <button class="calendar-month-button" type="button" data-calendar-action="prev" aria-label="Previous month"></button>
+      <span class="calendar-month-label">${calendarMonths[month]} ${year}</span>
+      <button class="calendar-month-button is-next" type="button" data-calendar-action="next" aria-label="Next month"></button>
+    </div>
+    <div class="calendar-weekdays" aria-hidden="true">
+      ${calendarWeekdays.map((day) => `<span>${day}</span>`).join('')}
+    </div>
+    <div class="calendar-grid">
+      ${days}
+    </div>
+  `;
+}
+
 function routeMenuTemplate(route) {
-  const groups = groupRoutesByType(state.routes);
+  const groups = routeGroupOptions();
+  const selectedGroup = groups.find((group) => group.type === routeGroupType(route)) || groups[0];
 
   return `
     <form data-route-id="${route.id}">
       <label>
-        <span>Название</span>
+        <span>Name</span>
         <input name="name" type="text" value="${escapeAttribute(route.name)}" required />
       </label>
-      <label>
-        <span>Дата</span>
-        <input name="routeDate" type="date" value="${escapeAttribute(route.routeDate)}" required />
+      <label class="date-field">
+        <span>Date</span>
+        <input class="date-input" name="routeDate" type="hidden" value="${escapeAttribute(route.routeDate)}" required />
+        <div class="calendar-picker">
+          <button class="calendar-trigger" type="button" aria-expanded="false">
+            <span class="calendar-trigger-value">${escapeHtml(formatCalendarDate(parseInputDate(route.routeDate) || new Date()))}</span>
+          </button>
+          <div class="calendar-panel" aria-label="Choose date"></div>
+        </div>
       </label>
       <label>
-        <span>Тип</span>
-        <select name="routeType">${groups.map((group) => `<option value="${group.type}"${group.type === route.routeType ? ' selected' : ''}>${escapeHtml(group.label)}</option>`).join('')}</select>
+        <span>Type</span>
+        <input name="routeType" type="hidden" value="${escapeAttribute(selectedGroup?.type || routeGroupType(route))}" />
+        <div class="type-dropdown">
+          <button class="type-dropdown-trigger" type="button" aria-expanded="false">
+            <span>${escapeHtml(selectedGroup?.label || routeGroupLabel(route))}</span>
+          </button>
+          <div class="type-dropdown-list">
+            ${groups.map((group) => `
+              <button class="type-dropdown-option${group.type === selectedGroup?.type ? ' is-selected' : ''}" type="button" data-value="${escapeAttribute(group.type)}">
+                ${escapeHtml(group.label)}
+              </button>
+            `).join('')}
+          </div>
+        </div>
       </label>
       <label>
-        <span>Дистанция, км</span>
+        <span>Distance, km</span>
         <input name="distanceKm" type="number" min="0" step="0.1" value="${roundDistance(route.distanceKm)}" required />
       </label>
-      <div class="editor-actions">
-        <a href="${route.downloadUrl || '#'}" download="${route.storedFileName || ''}">Скачать</a>
-        <button type="submit">Сохранить</button>
+      <div class="editor-actions route-editor-actions">
+        <a class="download-action" href="${route.downloadUrl || '#'}" download="${route.storedFileName || ''}" data-tooltip="Download" aria-label="Download route">
+          <span aria-hidden="true"></span>
+        </a>
+        <div class="route-editor-action-group">
+          <button class="delete-action" type="button" data-route-delete>Delete layer</button>
+          <button class="save-action" type="submit">Save</button>
+        </div>
       </div>
     </form>
   `;
@@ -841,20 +1445,46 @@ function groupMenuTemplate(group) {
   return `
     <form data-group-type="${group.type}">
       <label>
-        <span>Название группы</span>
+        <span>Group name</span>
         <input name="label" type="text" value="${escapeAttribute(group.label)}" required />
       </label>
       <label>
-        <span>Цвет линии</span>
-        <input name="color" type="color" value="${escapeAttribute(group.color)}" required />
+        <span>Line color</span>
+        <input name="color" type="hidden" value="${escapeAttribute(group.color)}" required />
+        <div class="color-picker">
+          <button class="color-picker-trigger" type="button" aria-expanded="false">
+            <span class="color-picker-trigger-swatch" style="--selected-color: ${escapeAttribute(group.color)}"></span>
+            <span class="color-picker-value">${escapeHtml(group.color.toUpperCase())}</span>
+          </button>
+          <div class="color-picker-panel" aria-label="Choose line color">
+            <div class="color-picker-grid">
+              ${[...colors, ...extendedColors, ...grayscaleColors].map((color) => `
+                <button class="color-picker-option${color === group.color ? ' is-selected' : ''}" type="button" data-color="${escapeAttribute(color)}" style="--option-color: ${escapeAttribute(color)}" aria-label="${escapeAttribute(color)}"></button>
+              `).join('')}
+            </div>
+          </div>
+        </div>
       </label>
       <label>
-        <span>Толщина линии</span>
-        <input name="lineWidth" type="range" min="0.4" max="3" step="0.1" value="${group.lineWidth}" />
+        <span>Line width</span>
+        <div class="range-control">
+          <input name="lineWidth" type="range" min="0.4" max="3" step="0.1" value="${group.lineWidth}" />
+          <output class="range-value" data-line-width-value>${formatLineWidthValue(group.lineWidth)} px</output>
+        </div>
       </label>
-      <div class="editor-actions">
-        <span>${group.count} ${pluralTrack(group.count)} · ${formatDistance(group.distanceKm)}</span>
-        <button type="submit">Применить</button>
+      <label>
+        <span>Line style</span>
+        <select name="lineStyle">
+          <option value="solid"${group.lineStyle === 'solid' ? ' selected' : ''}>Solid</option>
+          <option value="dashed"${group.lineStyle === 'dashed' ? ' selected' : ''}>Dashed</option>
+        </select>
+      </label>
+      <div class="group-editor-actions">
+        <span class="group-editor-meta">${group.count} ${pluralTrack(group.count)} · ${formatDistance(group.distanceKm)}</span>
+        <div class="group-editor-action-group">
+          <button class="delete-action" type="button" data-group-delete>Delete group</button>
+          <button class="save-action" type="submit">Save</button>
+        </div>
       </div>
     </form>
   `;
@@ -985,7 +1615,7 @@ function normalizeSavedRoute(route) {
     ...route,
     distanceKm: Number(route.distanceKm) || 0,
     routeDate: route.routeDate || todayInputDate(),
-    routeType: route.routeType || 'other',
+    routeType: route.routeType || route.id,
     visible: route.visible !== false,
     bounds: route.bounds || null,
     feature: route.feature,
@@ -1037,7 +1667,12 @@ function fitBounds(bounds) {
   }
 
   map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], {
-    padding: { top: 56, right: 56, bottom: 56, left: window.innerWidth > 760 ? 420 : 56 },
+    padding: {
+      top: 92,
+      right: 56,
+      bottom: 118,
+      left: window.innerWidth > 760 && !state.layersCollapsed ? 420 : 56,
+    },
     duration: 700,
     maxZoom: 15,
   });
@@ -1062,30 +1697,28 @@ function dateOrNull(value) {
 }
 
 function formatDistance(value) {
-  return `${roundDistance(value).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} км`;
+  return `${roundDistance(value).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} km`;
+}
+
+function formatSummaryDistance(value) {
+  return Math.round(Number(value) || 0).toLocaleString('ru-RU');
+}
+
+function formatLayerDistance(value) {
+  return Math.round(Number(value) || 0).toLocaleString('ru-RU');
 }
 
 function pluralTrack(count) {
-  const value = Math.abs(count) % 100;
-  const last = value % 10;
-
-  if (value > 10 && value < 20) {
-    return 'треков';
-  }
-
-  if (last === 1) {
-    return 'трек';
-  }
-
-  if (last > 1 && last < 5) {
-    return 'трека';
-  }
-
-  return 'треков';
+  return Math.abs(count) === 1 ? 'track' : 'tracks';
 }
 
 function roundDistance(value) {
   return Math.round((Number(value) || 0) * 10) / 10;
+}
+
+function formatLineWidthValue(value) {
+  const rounded = Math.round((Number(value) || 0) * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
 function trimExtension(name) {
@@ -1099,21 +1732,34 @@ function emptyCollection() {
   };
 }
 
-function routeTypeLabel(value) {
-  return groupLabel(value);
+function routeGroupType(route) {
+  return route.routeType || route.id;
+}
+
+function routeGroupLabel(route) {
+  return state.groupSettings[routeGroupType(route)]?.label || route.name || routeGroupType(route);
 }
 
 function groupLabel(value) {
-  return state.groupSettings[value]?.label || routeTypes.find((type) => type.value === value)?.label || 'Другое';
+  return state.groupSettings[value]?.label || value;
 }
 
-function groupColor(value, fallback = '#0f8b8d') {
+function groupColor(value, fallback = '#2f3432') {
   return state.groupSettings[value]?.color || fallback;
 }
 
 function groupLineWidth(value) {
   const lineWidth = Number(state.groupSettings[value]?.lineWidth);
   return Number.isFinite(lineWidth) ? lineWidth : 1;
+}
+
+function groupLineStyle(value) {
+  const lineStyle = state.groupSettings[value]?.lineStyle;
+  return isLineStyle(lineStyle) ? lineStyle : 'solid';
+}
+
+function isLineStyle(value) {
+  return value === 'solid' || value === 'dashed';
 }
 
 function createGroupType() {
@@ -1131,6 +1777,7 @@ function routeRenderProperties(route) {
     name: route.name,
     color: groupColor(route.routeType, route.color),
     ...lineWidthProperties(route.routeType),
+    isDashed: groupLineStyle(route.routeType) === 'dashed',
     routeType: route.routeType,
   };
 }
@@ -1157,13 +1804,35 @@ function formatInputDate(value) {
   return value.toISOString().slice(0, 10);
 }
 
+function parseInputDate(value) {
+  const [year, month, day] = String(value || '').split('-').map(Number);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null;
+}
+
+function formatInputDateLocal(value) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatCalendarDate(value) {
+  return `${calendarMonths[value.getMonth()]} ${value.getDate()}, ${value.getFullYear()}`;
+}
+
 function todayInputDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
 function formatDate(value) {
   const [year, month, day] = String(value || '').split('-');
-  return year && month && day ? `${day}.${month}.${year}` : 'без даты';
+  return year && month && day ? `${day}.${month}.${year}` : 'no date';
 }
 
 function escapeHtml(value) {

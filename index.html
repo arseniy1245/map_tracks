@@ -1,45 +1,197 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Route Map</title>
   </head>
   <body>
-    <div id="app">
-      <aside class="sidebar">
-        <section class="sidebar-panel">
+    <div id="app" class="is-map">
+      <section class="home-panel" aria-label="Home screen">
+        <div class="home-copy">
+          <p class="home-kicker">Sentus trips</p>
+          <h2>Routes, photos, and map in one place</h2>
+        </div>
+
+        <div class="photo-grid" aria-label="Route photos">
+          <div class="photo-row photo-row-left">
+            <div class="photo-track">
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=800&q=80" alt="Mountain road at sunset" />
+                <span>Roads</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=800&q=80" alt="Trail through hills" />
+                <span>Trails</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=800&q=80" alt="Mountain pass" />
+                <span>Passes</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1473773508845-188df298d2d1?auto=format&fit=crop&w=800&q=80" alt="Forest trail" />
+                <span>Forest</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Roads</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Trails</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Passes</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1473773508845-188df298d2d1?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Forest</span>
+              </article>
+            </div>
+          </div>
+
+          <div class="photo-row photo-row-right">
+            <div class="photo-track">
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1541625602330-2277a4c46182?auto=format&fit=crop&w=800&q=80" alt="Route on open road" />
+                <span>Road</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=800&q=80" alt="Hills and road" />
+                <span>Hills</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=800&q=80" alt="Valley on a route" />
+                <span>Valleys</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80" alt="Road trip by car" />
+                <span>Journey</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1541625602330-2277a4c46182?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Road</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Hills</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Valleys</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Journey</span>
+              </article>
+            </div>
+          </div>
+
+          <div class="photo-row photo-row-left photo-row-slow">
+            <div class="photo-track">
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1529074963764-98f45c47344b?auto=format&fit=crop&w=800&q=80" alt="Airplane in the sky" />
+                <span>Skyline</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=800&q=80" alt="Scenic road" />
+                <span>Scenery</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=800&q=80" alt="Route in the mountains" />
+                <span>Mountains</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=800&q=80" alt="Open route" />
+                <span>Outings</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1529074963764-98f45c47344b?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Skyline</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Scenery</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Mountains</span>
+              </article>
+              <article class="photo-card">
+                <img src="https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=800&q=80" alt="" />
+                <span>Outings</span>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="sidebar" id="layers-panel">
+        <section class="sidebar-panel" aria-label="Route layers">
           <header class="brand">
             <div>
-              <h1>Sentus trips</h1>
+              <h1>Sentus</h1>
             </div>
-            <button class="icon-button" id="fit-all" type="button" title="Показать все маршруты" aria-label="Показать все маршруты">
-              <span aria-hidden="true">⌖</span>
+            <button class="icon-button layer-collapse-button" id="toggle-layers" type="button" data-tooltip="Collapse layers" aria-label="Collapse layers panel" aria-expanded="true">
+              <span aria-hidden="true"></span>
             </button>
           </header>
 
-          <label class="drop-zone" id="drop-zone">
-            <input id="file-input" type="file" accept=".gpx,.fit" multiple />
-            <span class="drop-title">Загрузить GPX или FIT</span>
-            <span class="drop-subtitle">Перетащите файлы сюда или выберите на диске</span>
-          </label>
-
-          <section class="summary" id="route-summary" aria-live="polite"></section>
-          <button class="group-add-button" id="add-group" type="button">Добавить группу</button>
-
+          <ol class="route-list" id="route-list" aria-label="Route list"></ol>
         </section>
-
-        <ol class="route-list" id="route-list" aria-label="Список маршрутов"></ol>
       </aside>
 
       <main class="map-shell">
-        <div class="basemap-switcher" aria-label="Подложка карты">
-          <button type="button" data-basemap="osm">OSM</button>
-          <button type="button" data-basemap="positron">Positron</button>
-          <button type="button" class="is-active" data-basemap="colorful">Colorful</button>
+        <div class="map-preview-overlay">
+          <div class="map-preview-copy">
+            <p>Interactive route map</p>
+            <h2>Open the map to manage layers and groups</h2>
+          </div>
+          <button class="map-preview-cta" id="open-map" type="button">
+            <span>Open map</span>
+          </button>
         </div>
         <div id="map"></div>
       </main>
+
+      <div class="map-zoom-controls" aria-label="Map zoom">
+        <button class="map-zoom-button map-zoom-in" id="zoom-in" type="button" data-tooltip="Zoom in" aria-label="Zoom in">
+          <span aria-hidden="true"></span>
+        </button>
+        <button class="map-zoom-button map-zoom-out" id="zoom-out" type="button" data-tooltip="Zoom out" aria-label="Zoom out">
+          <span aria-hidden="true"></span>
+        </button>
+        <button class="map-zoom-button map-north-button" id="reset-north" type="button" data-tooltip="North" aria-label="Reset map north">
+          <span aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <section class="map-top-dock" aria-label="Route groups">
+        <div class="summary" id="route-summary" aria-live="polite"></div>
+        <button class="group-add-button" id="add-group" type="button" data-tooltip="Create group" aria-label="Create group">
+          <span aria-hidden="true">+</span>
+        </button>
+      </section>
+
+      <nav class="map-dock" aria-label="Map navigation">
+        <label class="dock-file-control" id="drop-zone">
+          <input id="file-input" type="file" accept=".gpx,.fit" multiple />
+          <span class="dock-kicker">GPX/FIT</span>
+          <span class="dock-label">Upload</span>
+        </label>
+        <button class="dock-action" id="gallery" type="button" data-tooltip="Gallery" aria-label="Gallery">
+          <span>gallery</span>
+        </button>
+        <button class="dock-action" id="spots" type="button" data-tooltip="Spots" aria-label="Spots">
+          <span>spots</span>
+        </button>
+        <div class="basemap-switcher" aria-label="Basemap">
+          <button type="button" data-basemap="osm" data-tooltip="OSM" aria-label="OSM">O</button>
+          <button type="button" data-basemap="positron" data-tooltip="Positron" aria-label="Positron">P</button>
+          <button type="button" class="is-active" data-basemap="colorful" data-tooltip="Colorful" aria-label="Colorful">C</button>
+        </div>
+      </nav>
     </div>
 
     <script type="module" src="/src/main.js"></script>
