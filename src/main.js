@@ -554,11 +554,13 @@ async function handleFiles(files) {
 
   const parsed = await Promise.allSettled(routeFiles.map(uploadRouteFile));
   const accepted = [];
+  const rejected = [];
 
   parsed.forEach((result) => {
     if (result.status === 'fulfilled') {
       accepted.push(result.value);
     } else {
+      rejected.push(result.reason);
       console.error(result.reason);
     }
   });
@@ -573,6 +575,10 @@ async function handleFiles(files) {
 
   if (accepted.length) {
     fitAllRoutes();
+  }
+
+  if (rejected.length) {
+    alert(`Upload failed: ${rejected.map((error) => error.message || String(error)).join('\n')}`);
   }
 
 }
@@ -2212,7 +2218,9 @@ async function api(url, options = {}) {
   const response = await fetch(url, options);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || response.statusText);
+    const requestError = new Error(error.error || response.statusText);
+    requestError.status = response.status;
+    throw requestError;
   }
   return response.json();
 }

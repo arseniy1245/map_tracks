@@ -18,7 +18,7 @@ const routesIndexFile = path.join(dataDir, 'routes-index.json');
 const groupSettingsFile = path.join(dataDir, 'group-settings.json');
 const telegramBackupConfigFile = path.join(dataDir, 'telegram-backup.json');
 const distDir = path.join(__dirname, 'dist');
-const maxUploadBytes = 100 * 1024 * 1024;
+const maxUploadBytes = Math.max(1, Number(process.env.MAX_UPLOAD_MB || 100)) * 1024 * 1024;
 const unsortedGroupType = 'unsorted';
 let routesMutationQueue = Promise.resolve();
 let groupSettingsMutationQueue = Promise.resolve();
@@ -60,6 +60,7 @@ const server = http.createServer(async (request, response) => {
 
     await serveStatic(response, url.pathname);
   } catch (error) {
+    console.error(`[${new Date().toISOString()}] ${request.method} ${request.url} failed`, error);
     sendError(response, error.status || 500, error.message || 'Server error');
   }
 });
