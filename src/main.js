@@ -778,7 +778,7 @@ function coordinatesToSegment(coordinates) {
 
 async function parseRouteFile(file) {
   const parsed = await parseRouteSegmentsFile(file);
-  const id = crypto.randomUUID();
+  const id = createClientId();
   const name = trimExtension(file.name);
   const color = colors[state.routes.length % colors.length];
 
@@ -811,7 +811,7 @@ async function parseRouteSegmentsFile(file) {
 }
 
 function buildMergedRoute(parsedFiles) {
-  const id = crypto.randomUUID();
+  const id = createClientId();
   const segments = parsedFiles.flatMap((item) => item.segments);
   const stats = calculateStats(segments);
   const routeDate = formatInputDate(stats.startedAt) || todayInputDate();
@@ -2350,6 +2350,30 @@ function trimExtension(name) {
   return name.replace(/\.[^.]+$/, '');
 }
 
+function createClientId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  return [...bytes].map((byte, index) => {
+    const value = byte.toString(16).padStart(2, '0');
+    return [4, 6, 8, 10].includes(index) ? `-${value}` : value;
+  }).join('');
+}
+
 function emptyCollection() {
   return {
     type: 'FeatureCollection',
@@ -2398,10 +2422,10 @@ function isLineStyle(value) {
 }
 
 function createGroupType() {
-  let type = `custom_${crypto.randomUUID()}`;
+  let type = `custom_${createClientId()}`;
 
   while (state.groupSettings[type]) {
-    type = `custom_${crypto.randomUUID()}`;
+    type = `custom_${createClientId()}`;
   }
 
   return type;
