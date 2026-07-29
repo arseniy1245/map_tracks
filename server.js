@@ -9,6 +9,7 @@ import { createServer as createViteServer } from 'vite';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isProduction = process.argv.includes('--production') || process.env.NODE_ENV === 'production';
 const port = Number(process.env.PORT || 5173);
+const host = process.env.HOST || (isProduction ? '0.0.0.0' : '127.0.0.1');
 
 const dataDir = path.join(__dirname, 'data');
 const uploadDir = path.join(dataDir, 'uploads');
@@ -63,8 +64,12 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(port, '127.0.0.1', () => {
-  console.log(`Route map server: http://127.0.0.1:${port}/`);
+server.listen(port, host, () => {
+  const displayHost = host === '0.0.0.0' ? '127.0.0.1' : host;
+  console.log(`Route map server: http://${displayHost}:${port}/`);
+  if (host === '0.0.0.0') {
+    console.log(`Listening on all interfaces: http://0.0.0.0:${port}/`);
+  }
   scheduleTelegramBackups();
 });
 

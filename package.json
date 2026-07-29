@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node server.js",
     "build": "vite build",
-    "preview": "node server.js --production"
+    "preview": "node server.js --production",
+    "start": "node server.js --production"
   },
   "dependencies": {
     "@garmin/fitsdk": "^21.208.0",
