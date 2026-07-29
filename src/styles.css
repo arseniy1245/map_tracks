@@ -553,7 +553,7 @@ margin: 0;
   scrollbar-width: none;
   list-style: none;
   background: transparent;
-  border-radius: 20px;
+  border-radius: 0px;
   box-shadow: none;
 }
 
@@ -573,9 +573,7 @@ margin: 0;
 .route-group-header {
   display: grid;
   grid-template-columns: 50px minmax(0, 1fr);
-  grid-template-areas:
-    "count title"
-    "count meta";
+  grid-template-areas: "count main";
   column-gap: 40px;
   align-items: center;
   /* min-height: 100px; */
@@ -584,8 +582,8 @@ margin: 0;
 }
 
 .route-group-count,
-.route-group-title,
-.route-group-meta {
+.route-group-main,
+.route-group-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -600,9 +598,15 @@ margin: 0;
   height: 60px;
   padding: 0 6px 0 0;
   color: black;
-  font-size: 13px;
   font-weight: 400;
   line-height: 1;
+}
+
+.route-group-count-value {
+  display: block;
+  color: black;
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .route-group-count::before {
@@ -624,21 +628,56 @@ margin: 0;
   transform: translateY(-50%);
 }
 
-.route-group-title {
-  grid-area: title;
-  align-self: end;
-  color: black;
-  font-size: 12px;
-  font-weight: 400;
+.route-group-main {
+  display: flex;
+  grid-area: main;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
-.route-group-meta {
-  grid-area: meta;
-  align-self: start;
-  margin-top: 10px;
-  color: rgba(72, 85, 80, 0.72);
-  font-size: 10px;
+.route-group-title {
+  min-width: 0;
+  color: black;
+  font-size: 14px;
   font-weight: 400;
+  line-height: 1;
+}
+
+.route-group-visibility {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 18px;
+  height: 30px;
+  margin-left: auto;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.route-group-visibility::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(185, 191, 188, 0.92);
+  transition:
+    background 180ms ease,
+    transform 160ms ease;
+}
+
+.route-group-visibility:not(.is-visible)::before {
+  background: rgba(121, 128, 125, 0.62);
+}
+
+.route-group-visibility:hover {
+  background: transparent;
+}
+
+.route-group-visibility:hover::before {
+  transform: scale(1.45);
 }
 
 .route-group-list {
@@ -727,15 +766,15 @@ margin: 0;
   display: grid;
   position: relative;
   align-items: center;
-  justify-items: start;
+  justify-items: end;
   min-width: 0;
   height: 100px;
-  padding: 0 6px 0 0;
+  padding: 0 18px 0 0;
   color: black;
   font-size: 13px;
   font-weight: 400;
   line-height: 1;
-  text-align: left;
+  text-align: right;
   /* background: rgba(255, 255, 255, 0.52);
   border: 1px solid rgba(255, 255, 255, 0.64); */
   /* border-radius: 11px; */
@@ -897,6 +936,7 @@ margin: 0;
 .floating-menu form {
   display: grid;
   gap: 20px;
+  padding-bottom: 40px;
 }
 
 .floating-menu ::selection {
@@ -1705,6 +1745,111 @@ margin: 0;
   align-items: center;
 }
 
+.base-route-merge {
+  display: grid;
+  gap: 8px;
+}
+
+.base-route-merge-title {
+  color: rgba(47, 52, 50, 0.72);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.base-route-list {
+  display: grid;
+  gap: 4px;
+}
+
+.base-route-option {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  color: #17201d;
+  background: rgb(0 0 0 / 4%);
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.base-route-option:hover {
+  color: #ffffff;
+  background: #252826;
+}
+
+.floating-menu .base-route-option input {
+  appearance: none;
+  display: block;
+  width: 7px;
+  min-width: 7px;
+  height: 7px;
+  min-height: 7px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(185, 191, 188, 0.92);
+  border: 0;
+  outline: 0;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.base-route-option.is-selected input,
+.floating-menu .base-route-option input:checked {
+  background: #000000;
+}
+
+.floating-menu .base-route-option input:focus,
+.floating-menu .base-route-option input:active {
+  background: rgba(185, 191, 188, 0.92);
+  outline: 0;
+}
+
+.base-route-option.is-selected input:focus,
+.base-route-option.is-selected input:active,
+.floating-menu .base-route-option input:checked:focus,
+.floating-menu .base-route-option input:checked:active {
+  background: #000000;
+}
+
+.floating-menu .base-route-option span {
+  min-width: 0;
+  overflow: hidden;
+  color: currentColor;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.base-route-merge-action {
+  height: 34px;
+  color: #ffffff;
+  background: #252826;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease;
+}
+
+.base-route-merge-action:hover {
+  background: #000000;
+}
+
+.base-route-merge-action:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
 .group-editor-actions {
   display: grid;
   gap: 8px;
@@ -2084,6 +2229,23 @@ display: grid;
   font-weight: 400;
 }
 
+.dock-profile-button {
+  width: 44px;
+  min-width: 52px;
+  /* height: 44px; */
+  min-height: 44px;
+  padding: 0;
+}
+
+.dock-profile-button span {
+  display: block;
+  width: 17px;
+  height: 17px;
+  background: currentColor;
+  mask: url("./assets/svg/user.svg") center / contain no-repeat;
+  -webkit-mask: url("./assets/svg/user.svg") center / contain no-repeat;
+}
+
 .dock-kicker,
 .dock-label,
 .dock-action span {
@@ -2300,6 +2462,12 @@ display: grid;
     min-width: 64px;
     padding-right: 8px;
     padding-left: 8px;
+  }
+
+  .dock-profile-button {
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
   }
 
   .maplibregl-ctrl-bottom-right {

@@ -180,6 +180,11 @@
           <span class="dock-kicker">GPX/FIT</span>
           <span class="dock-label">Upload</span>
         </label>
+        <label class="dock-file-control" id="merge-zone">
+          <input id="merge-input" type="file" accept=".gpx,.fit" multiple />
+          <span class="dock-kicker">GPX/FIT</span>
+          <span class="dock-label">Merge</span>
+        </label>
         <button class="dock-action" id="gallery" type="button" data-tooltip="Gallery" aria-label="Gallery">
           <span>gallery</span>
         </button>
@@ -190,7 +195,11 @@
           <button type="button" data-basemap="osm" data-tooltip="OSM" aria-label="OSM">O</button>
           <button type="button" data-basemap="positron" data-tooltip="Positron" aria-label="Positron">P</button>
           <button type="button" class="is-active" data-basemap="colorful" data-tooltip="Colorful" aria-label="Colorful">C</button>
+          <button type="button" data-basemap="satellite" data-tooltip="Satellite" aria-label="Satellite">S</button>
         </div>
+        <button class="dock-action dock-profile-button" id="profile" type="button" data-tooltip="Profile" aria-label="Profile">
+          <span aria-hidden="true"></span>
+        </button>
       </nav>
     </div>
 

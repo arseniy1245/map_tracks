@@ -2,14 +2,33 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles.css';
 
+const baseRouteModules = import.meta.glob('./assets/base_routes/*.{gpx,fit,GPX,FIT}', {
+  eager: true,
+  import: 'default',
+  query: '?url',
+});
 const routeSourceId = 'uploaded-routes';
 const homeVeilSourceId = 'home-map-veil-source';
 const homeVeilLayerId = 'home-map-veil';
 const routeSolidLayerId = 'route-lines-solid';
 const routeDashedLayerId = 'route-lines-dashed';
+const unsortedGroupType = 'unsorted';
+const unsortedGroupLabel = 'Unsorted';
 const colors = ['#2f3432', '#e4572e', '#3f7cac', '#a23e48', '#2e933c', '#7b2cbf', '#5f6f89', '#006d77'];
 const extendedColors = ['#1f2937', '#475569', '#0f766e', '#14b8a6', '#2563eb', '#38bdf8', '#9333ea', '#c084fc', '#be123c', '#f43f5e', '#b45309', '#f97316', '#ca8a04', '#eab308', '#4d7c0f', '#84cc16'];
 const grayscaleColors = ['#000000', '#242424', '#444444', '#666666', '#888888', '#aaaaaa', '#c6c6c6', '#e2e2e2'];
+const baseRouteOptions = Object.entries(baseRouteModules)
+  .map(([filePath, url]) => {
+    const fileName = filePath.split('/').pop();
+
+    return {
+      id: filePath,
+      name: trimExtension(fileName).replaceAll('_', ' '),
+      fileName,
+      url,
+    };
+  })
+  .sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const basemaps = {
   osm: {
     label: 'OSM',
@@ -41,6 +60,38 @@ const basemaps = {
     label: 'Colorful',
     style: 'https://tiles.versatiles.org/assets/styles/colorful/style.json',
   },
+  satellite: {
+    label: 'Satellite',
+    style: {
+      version: 8,
+      sources: {
+        satellite: {
+          type: 'raster',
+          tiles: [
+            'https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+            'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+            'https://mt2.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+            'https://mt3.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+          ],
+          tileSize: 256,
+        },
+        terrarium: {
+          type: 'raster-dem',
+          tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          encoding: 'terrarium',
+        },
+      },
+      layers: [
+        {
+          id: 'satellite',
+          type: 'raster',
+          source: 'satellite',
+        },
+      ],
+      terrain: { source: 'terrarium', exaggeration: 1.5 },
+    },
+  },
 };
 
 const calendarWeekdays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -69,13 +120,16 @@ const state = {
   openMenuAnchor: null,
   basemap: 'colorful',
   layersCollapsed: false,
+  routesRenderPending: false,
 };
 
 const elements = {
   app: document.querySelector('#app'),
   sidebar: document.querySelector('#layers-panel'),
   input: document.querySelector('#file-input'),
+  mergeInput: document.querySelector('#merge-input'),
   dropZone: document.querySelector('#drop-zone'),
+  mergeZone: document.querySelector('#merge-zone'),
   list: document.querySelector('#route-list'),
   summary: document.querySelector('#route-summary'),
   fitAll: document.querySelector('#fit-all'),
@@ -115,6 +169,12 @@ map.on('styledata', () => {
   }
 });
 
+map.on('idle', () => {
+  if (state.routesRenderPending) {
+    scheduleRoutesRender();
+  }
+});
+
 map.on('rotate', updateNorthButton);
 map.on('pitch', updateNorthButton);
 
@@ -124,88 +184,113 @@ function ensureRouteLayer() {
   }
 
   if (!map.getSource(routeSourceId)) {
-    map.addSource(routeSourceId, {
-      type: 'geojson',
-      data: emptyCollection(),
-      promoteId: 'id',
-      lineMetrics: false,
-    });
+    map.addSource(routeSourceId, routeSourceDefinition());
   }
 
   if (!map.getSource(homeVeilSourceId)) {
-    map.addSource(homeVeilSourceId, {
-      type: 'geojson',
-      data: {
-        type: 'Feature',
-        geometry: {
-          type: 'Polygon',
-          coordinates: [[
-            [-180, -85],
-            [180, -85],
-            [180, 85],
-            [-180, 85],
-            [-180, -85],
-          ]],
-        },
-        properties: {},
-      },
-    });
+    map.addSource(homeVeilSourceId, homeVeilSourceDefinition());
   }
 
   if (!map.getLayer(homeVeilLayerId)) {
-    map.addLayer({
-      id: homeVeilLayerId,
-      type: 'fill',
-      source: homeVeilSourceId,
-      paint: {
-        'fill-color': '#ffffff',
-        'fill-opacity': 0,
-      },
-    }, map.getLayer(routeSolidLayerId) ? routeSolidLayerId : undefined);
+    map.addLayer(homeVeilLayerDefinition(), map.getLayer(routeSolidLayerId) ? routeSolidLayerId : undefined);
   }
 
   if (!map.getLayer(routeSolidLayerId)) {
-    map.addLayer({
-      id: routeSolidLayerId,
-      type: 'line',
-      source: routeSourceId,
-      filter: ['!=', ['get', 'isDashed'], true],
-      paint: {
-        'line-color': ['get', 'color'],
-        'line-width': ['get', 'lineWidthPx'],
-        'line-opacity': ['case', ['==', ['get', 'isSelected'], true], 1, 0.78],
-      },
-      layout: {
-        'line-cap': 'round',
-        'line-join': 'round',
-      },
-    });
+    map.addLayer(routeSolidLayerDefinition());
   }
 
   if (!map.getLayer(routeDashedLayerId)) {
-    map.addLayer({
-      id: routeDashedLayerId,
-      type: 'line',
-      source: routeSourceId,
-      filter: ['==', ['get', 'isDashed'], true],
-      paint: {
-        'line-color': ['get', 'color'],
-        'line-width': ['get', 'lineWidthPx'],
-        'line-opacity': ['case', ['==', ['get', 'isSelected'], true], 1, 0.78],
-        'line-dasharray': [1.4, 1.1],
-      },
-      layout: {
-        'line-cap': 'round',
-        'line-join': 'round',
-      },
-    });
+    map.addLayer(routeDashedLayerDefinition());
   }
 
   applyMapModePaint();
 }
 
+function routeSourceDefinition(data = emptyCollection()) {
+  return {
+    type: 'geojson',
+    data,
+    promoteId: 'id',
+    lineMetrics: false,
+  };
+}
+
+function homeVeilSourceDefinition() {
+  return {
+    type: 'geojson',
+    data: {
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[
+          [-180, -85],
+          [180, -85],
+          [180, 85],
+          [-180, 85],
+          [-180, -85],
+        ]],
+      },
+      properties: {},
+    },
+  };
+}
+
+function homeVeilLayerDefinition() {
+  return {
+    id: homeVeilLayerId,
+    type: 'fill',
+    source: homeVeilSourceId,
+    paint: {
+      'fill-color': '#ffffff',
+      'fill-opacity': 0,
+    },
+  };
+}
+
+function routeSolidLayerDefinition() {
+  return {
+    id: routeSolidLayerId,
+    type: 'line',
+    source: routeSourceId,
+    filter: ['!=', ['get', 'isDashed'], true],
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['get', 'lineWidthPx'],
+      'line-opacity': ['case', ['==', ['get', 'isSelected'], true], 1, 0.78],
+    },
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round',
+    },
+  };
+}
+
+function routeDashedLayerDefinition() {
+  return {
+    id: routeDashedLayerId,
+    type: 'line',
+    source: routeSourceId,
+    filter: ['==', ['get', 'isDashed'], true],
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['get', 'lineWidthPx'],
+      'line-opacity': ['case', ['==', ['get', 'isSelected'], true], 1, 0.78],
+      'line-dasharray': [3.4, 1.6],
+    },
+    layout: {
+      'line-cap': 'butt',
+      'line-join': 'round',
+    },
+  };
+}
+
 elements.input.addEventListener('change', (event) => {
   handleFiles([...event.target.files]);
+  event.target.value = '';
+});
+
+elements.mergeInput.addEventListener('change', (event) => {
+  handleMergeFiles([...event.target.files]);
   event.target.value = '';
 });
 
@@ -401,13 +486,36 @@ function setBasemap(name) {
   }
 
   state.basemap = name;
+  state.routesRenderPending = true;
   updateBasemapButtons();
-  map.setStyle(basemapStyle(name), { diff: false });
+  map.setStyle(basemapStyle(name), {
+    transformStyle: injectRouteOverlayIntoStyle,
+  });
 }
 
 function basemapStyle(name) {
   const style = basemaps[name]?.style || basemaps.osm.style;
   return typeof style === 'string' ? style : structuredClone(style);
+}
+
+function injectRouteOverlayIntoStyle(previousStyle, nextStyle) {
+  const style = structuredClone(nextStyle);
+  const overlayLayerIds = new Set([homeVeilLayerId, routeSolidLayerId, routeDashedLayerId]);
+
+  style.sources = {
+    ...(style.sources || {}),
+    [homeVeilSourceId]: homeVeilSourceDefinition(),
+    [routeSourceId]: routeSourceDefinition(currentRouteFeatureCollection()),
+  };
+
+  style.layers = [
+    ...(style.layers || []).filter((layer) => !overlayLayerIds.has(layer.id)),
+    homeVeilLayerDefinition(),
+    routeSolidLayerDefinition(),
+    routeDashedLayerDefinition(),
+  ];
+
+  return style;
 }
 
 function updateBasemapButtons() {
@@ -427,6 +535,7 @@ async function loadStoredRoutes() {
     state.groupSettings = groupSettings || {};
     state.routes = routes.map(normalizeSavedRoute);
     state.selectedId = state.routes.find((route) => route.visible)?.id || state.routes[0]?.id || null;
+    await pruneEmptyRouteGroups();
     scheduleRoutesRender();
     renderSidebar();
 
@@ -482,7 +591,202 @@ async function uploadRouteFile(file) {
   return normalizeSavedRoute(savedRoute);
 }
 
+async function handleMergeFiles(files) {
+  const routeFiles = files.filter((file) => /\.(gpx|fit)$/i.test(file.name));
+
+  if (routeFiles.length < 2) {
+    return;
+  }
+
+  try {
+    const parsedFiles = orderParsedRouteFiles(await Promise.all(routeFiles.map(parseRouteSegmentsFile)));
+    const mergedRoute = buildMergedRoute(parsedFiles);
+    const gpx = routeToGpx(mergedRoute.name, parsedFiles.flatMap((item) => item.segments));
+    const form = new FormData();
+
+    form.append('route', JSON.stringify(mergedRoute));
+    form.append('file', new File([gpx], `${mergedRoute.name}.gpx`, { type: 'application/gpx+xml' }));
+
+    const savedRoute = await api('/api/routes', {
+      method: 'POST',
+      body: form,
+    });
+    const route = normalizeSavedRoute(savedRoute);
+
+    state.routes.push(route);
+    state.selectedId = route.id;
+    scheduleRoutesRender();
+    renderSidebar();
+    fitBounds(route.bounds);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function mergeRouteWithBaseRoutes(routeId, menu) {
+  const route = state.routes.find((item) => item.id === routeId);
+  const selectedBaseRoutes = [...menu.querySelectorAll('.base-route-option input:checked')]
+    .map((input) => baseRouteOptions.find((baseRoute) => baseRoute.id === input.value))
+    .filter(Boolean);
+
+  if (!route || !selectedBaseRoutes.length) {
+    return;
+  }
+
+  const action = menu.querySelector('[data-base-route-merge]');
+  action.disabled = true;
+
+  try {
+    const parsedRoutes = await Promise.all([
+      parseStoredRouteSegments(route),
+      ...selectedBaseRoutes.map(parseBaseRouteSegments),
+    ]);
+    const segments = parsedRoutes.flatMap((item) => item.segments);
+    const mergedRoute = buildRouteFromSegments({
+      id: route.id,
+      name: route.name,
+      color: route.color || colors[state.routes.length % colors.length],
+      fileType: 'GPX',
+      originalFileName: `${route.name}.gpx`,
+      routeDate: route.routeDate,
+      routeType: routeGroupType(route),
+      segments,
+    });
+    mergedRoute.visible = route.visible !== false;
+    mergedRoute.uploadedAt = route.uploadedAt || mergedRoute.uploadedAt;
+    mergedRoute.storedFileName = route.storedFileName;
+    mergedRoute.downloadUrl = route.downloadUrl;
+    mergedRoute.geometryFile = route.geometryFile;
+
+    const gpx = routeToGpx(mergedRoute.name, segments);
+    const form = new FormData();
+
+    form.append('route', JSON.stringify(mergedRoute));
+    form.append('file', new File([gpx], `${mergedRoute.name}.gpx`, { type: 'application/gpx+xml' }));
+
+    const savedRoute = await api(`/api/routes/${encodeURIComponent(route.id)}`, {
+      method: 'PUT',
+      body: form,
+    });
+    const updatedRoute = normalizeSavedRoute(savedRoute);
+    const routeIndex = state.routes.findIndex((item) => item.id === route.id);
+
+    if (routeIndex !== -1) {
+      state.routes[routeIndex] = updatedRoute;
+    }
+
+    state.selectedId = updatedRoute.id;
+    scheduleRoutesRender();
+    closeFloatingMenu();
+    renderSidebar();
+    fitBounds(updatedRoute.bounds);
+  } catch (error) {
+    console.error(error);
+    action.disabled = false;
+  }
+}
+
+async function parseStoredRouteSegments(route) {
+  if (route.downloadUrl) {
+    return parseRouteSegmentsUrl(route.downloadUrl, route.storedFileName || route.originalFileName || `${route.name}.gpx`);
+  }
+
+  const segments = featureToSegments(route.feature);
+
+  if (!segments.length) {
+    throw new Error(`${route.name}: no route points`);
+  }
+
+  return {
+    fileName: route.name,
+    ext: 'geojson',
+    segments,
+    stats: calculateStats(segments),
+  };
+}
+
+async function parseBaseRouteSegments(baseRoute) {
+  return parseRouteSegmentsUrl(baseRoute.url, baseRoute.fileName);
+}
+
+async function parseRouteSegmentsUrl(url, fileName) {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`${fileName}: ${response.statusText}`);
+  }
+
+  const ext = fileName.split('.').pop().toLowerCase();
+  const parsed = ext === 'fit'
+    ? await parseFit(await response.arrayBuffer())
+    : parseGpx(await response.text());
+
+  if (!parsed.segments.length) {
+    throw new Error(`${fileName}: no route points`);
+  }
+
+  return {
+    fileName,
+    ext,
+    segments: parsed.segments,
+    stats: calculateStats(parsed.segments),
+  };
+}
+
+function featureToSegments(feature) {
+  const geometry = feature?.geometry;
+
+  if (!geometry) {
+    return [];
+  }
+
+  if (geometry.type === 'LineString') {
+    return [coordinatesToSegment(geometry.coordinates)].filter((segment) => segment.length > 1);
+  }
+
+  if (geometry.type === 'MultiLineString') {
+    return geometry.coordinates.map(coordinatesToSegment).filter((segment) => segment.length > 1);
+  }
+
+  return [];
+}
+
+function coordinatesToSegment(coordinates) {
+  return coordinates
+    .map((coordinate) => {
+      const [lon, lat, elevation = null] = coordinate;
+
+      if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lon))) {
+        return null;
+      }
+
+      return {
+        lat: Number(lat),
+        lon: Number(lon),
+        elevation: numberOrNull(elevation),
+        time: null,
+      };
+    })
+    .filter(Boolean);
+}
+
 async function parseRouteFile(file) {
+  const parsed = await parseRouteSegmentsFile(file);
+  const id = crypto.randomUUID();
+  const name = trimExtension(file.name);
+  const color = colors[state.routes.length % colors.length];
+
+  return buildRouteFromSegments({
+    id,
+    name,
+    color,
+    fileType: parsed.ext.toUpperCase(),
+    originalFileName: file.name,
+    segments: parsed.segments,
+  });
+}
+
+async function parseRouteSegmentsFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   const parsed = ext === 'gpx'
     ? parseGpx(await file.text())
@@ -492,30 +796,62 @@ async function parseRouteFile(file) {
     throw new Error(`${file.name}: no route points`);
   }
 
+  return {
+    file,
+    ext,
+    segments: parsed.segments,
+    stats: calculateStats(parsed.segments),
+  };
+}
+
+function buildMergedRoute(parsedFiles) {
   const id = crypto.randomUUID();
-  const name = trimExtension(file.name);
-  const optimizedSegments = parsed.segments.map((segment) => simplifyForMap(segment));
-  const stats = calculateStats(parsed.segments);
+  const segments = parsedFiles.flatMap((item) => item.segments);
+  const stats = calculateStats(segments);
   const routeDate = formatInputDate(stats.startedAt) || todayInputDate();
+  const name = `Merged ${formatLayerDate(routeDate)}`;
   const color = colors[state.routes.length % colors.length];
-  const routeType = `route_${id}`;
+
+  return buildRouteFromSegments({
+    id,
+    name,
+    color,
+    fileType: 'GPX',
+    originalFileName: `${name}.gpx`,
+    segments,
+  });
+}
+
+function orderParsedRouteFiles(parsedFiles) {
+  return [...parsedFiles].sort((a, b) => {
+    const aTime = a.stats.startedAt?.getTime() ?? 0;
+    const bTime = b.stats.startedAt?.getTime() ?? 0;
+    return aTime - bTime;
+  });
+}
+
+function buildRouteFromSegments({ id, name, color, fileType, originalFileName, routeDate: routeDateOverride = null, routeType: routeTypeOverride = unsortedGroupType, segments }) {
+  const optimizedSegments = segments.map((segment) => simplifyForMap(segment));
+  const stats = calculateStats(segments);
+  const routeDate = routeDateOverride || formatInputDate(stats.startedAt) || todayInputDate();
+  const routeType = routeTypeOverride;
 
   return {
     id,
     name,
     color,
-    fileType: ext.toUpperCase(),
+    fileType,
     routeDate,
     routeType,
     visible: true,
-    originalFileName: file.name,
+    originalFileName,
     distanceKm: stats.distanceKm,
     ascentM: stats.ascentM,
     descentM: stats.descentM,
     bounds: stats.bounds,
     startedAt: stats.startedAt?.toISOString() || null,
     finishedAt: stats.finishedAt?.toISOString() || null,
-    pointCount: parsed.segments.reduce((sum, segment) => sum + segment.length, 0),
+    pointCount: segments.reduce((sum, segment) => sum + segment.length, 0),
     feature: {
       type: 'Feature',
       id,
@@ -608,36 +944,93 @@ async function parseFit(buffer) {
   return { segments: points.length > 1 ? [points] : [] };
 }
 
+function routeToGpx(name, segments) {
+  const trackSegments = segments
+    .filter((segment) => segment.length > 1)
+    .map((segment) => `    <trkseg>
+${segment.map(pointToGpx).join('\n')}
+    </trkseg>`)
+    .join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Route Map" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>${escapeXml(name)}</name>
+${trackSegments}
+  </trk>
+</gpx>
+`;
+}
+
+function pointToGpx(point) {
+  const elevation = Number.isFinite(Number(point.elevation)) ? `
+        <ele>${roundGpxNumber(point.elevation)}</ele>` : '';
+  const time = point.time ? `
+        <time>${point.time.toISOString()}</time>` : '';
+
+  return `      <trkpt lat="${roundGpxNumber(point.lat)}" lon="${roundGpxNumber(point.lon)}">${elevation}${time}
+      </trkpt>`;
+}
+
+function roundGpxNumber(value) {
+  return String(Math.round(Number(value) * 1e7) / 1e7);
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
 function scheduleRoutesRender() {
+  state.routesRenderPending = true;
+
   if (state.dataUpdateFrame) {
     cancelAnimationFrame(state.dataUpdateFrame);
   }
 
   state.dataUpdateFrame = requestAnimationFrame(() => {
-    ensureRouteLayer();
-
-    const source = map.getSource(routeSourceId);
-    if (!source) {
-      return;
-    }
-
-    const selectedId = state.selectedId;
-    const data = {
-      type: 'FeatureCollection',
-      features: state.routes
-        .filter((route) => route.visible)
-        .map((route) => ({
-          ...route.feature,
-          properties: {
-            ...route.feature.properties,
-            ...routeRenderProperties(route),
-            isSelected: route.id === selectedId,
-          },
-        })),
-    };
-
-    source.setData(data);
+    state.dataUpdateFrame = null;
+    renderRoutesOnMap();
   });
+}
+
+function renderRoutesOnMap() {
+  if (!map.isStyleLoaded()) {
+    return false;
+  }
+
+  ensureRouteLayer();
+
+  const source = map.getSource(routeSourceId);
+  if (!source) {
+    return false;
+  }
+
+  source.setData(currentRouteFeatureCollection());
+  state.routesRenderPending = false;
+  return true;
+}
+
+function currentRouteFeatureCollection() {
+  const selectedId = state.selectedId;
+
+  return {
+    type: 'FeatureCollection',
+    features: state.routes
+      .filter((route) => route.visible)
+      .map((route) => ({
+        ...route.feature,
+        properties: {
+          ...route.feature.properties,
+          ...routeRenderProperties(route),
+          isSelected: route.id === selectedId,
+        },
+      })),
+  };
 }
 
 function renderSidebar() {
@@ -646,7 +1039,9 @@ function renderSidebar() {
   const groups = groupRoutesByType(state.routes)
     .map((group) => ({
       ...group,
-      routes: state.routes.filter((route) => routeGroupType(route) === group.type),
+      routes: state.routes
+        .filter((route) => routeGroupType(route) === group.type)
+        .sort(compareRoutesByDateDesc),
     }))
     .filter((group) => group.routes.length);
 
@@ -663,14 +1058,23 @@ function renderSidebar() {
 function renderRouteGroup(group) {
   const section = document.createElement('li');
   section.className = 'route-group';
+  const isGroupVisible = group.routes.some((route) => route.visible);
 
   const header = document.createElement('div');
   header.className = 'route-group-header';
   header.innerHTML = `
-    <span class="route-group-count">${group.routes.length}</span>
-    <span class="route-group-title">${escapeHtml(group.label)}</span>
-    <span class="route-group-meta">${formatDistance(group.distanceKm)}</span>
+    <span class="route-group-count">
+      <span class="route-group-count-value">${formatSummaryDistance(group.distanceKm)}</span>
+    </span>
+    <span class="route-group-main">
+      <span class="route-group-title">${escapeHtml(group.label)}</span>
+      <button class="route-group-visibility${isGroupVisible ? ' is-visible' : ''}" type="button" data-tooltip="${isGroupVisible ? 'Hide group' : 'Show group'}" aria-label="${isGroupVisible ? `Hide ${escapeAttribute(group.label)}` : `Show ${escapeAttribute(group.label)}`}" aria-pressed="${String(isGroupVisible)}"></button>
+    </span>
   `;
+  header.querySelector('.route-group-visibility')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleRouteGroupVisibility(group.type, !isGroupVisible);
+  });
 
   const list = document.createElement('div');
   list.className = 'route-group-list';
@@ -678,6 +1082,27 @@ function renderRouteGroup(group) {
 
   section.append(header, list);
   return section;
+}
+
+function compareRoutesByDateDesc(a, b) {
+  const dateDelta = routeSortTime(b.routeDate) - routeSortTime(a.routeDate);
+
+  if (dateDelta !== 0) {
+    return dateDelta;
+  }
+
+  const uploadedDelta = routeSortTime(b.uploadedAt) - routeSortTime(a.uploadedAt);
+
+  if (uploadedDelta !== 0) {
+    return uploadedDelta;
+  }
+
+  return String(a.name || '').localeCompare(String(b.name || ''), 'en');
+}
+
+function routeSortTime(value) {
+  const time = Date.parse(value || '');
+  return Number.isFinite(time) ? time : 0;
 }
 
 function renderRouteCard(route) {
@@ -693,7 +1118,7 @@ function renderRouteCard(route) {
     <span class="route-distance">${formatLayerDistance(route.distanceKm)}</span>
     <span class="route-main">
       <strong>${escapeHtml(route.name)}</strong>
-      <span>${routeGroupLabel(route)} · ${formatDate(route.routeDate)} · ${route.pointCount.toLocaleString('ru-RU')} points</span>
+      <span>${formatLayerDate(route.routeDate)}</span>
     </span>
   `;
 
@@ -841,6 +1266,37 @@ async function toggleRouteVisibility(id, visible) {
   }
 }
 
+async function toggleRouteGroupVisibility(type, visible) {
+  const routes = state.routes.filter((route) => routeGroupType(route) === type);
+
+  if (!routes.length) {
+    return;
+  }
+
+  routes.forEach((route) => {
+    route.visible = visible;
+  });
+
+  if (!visible && routes.some((route) => route.id === state.selectedId)) {
+    state.selectedId = state.routes.find((route) => route.visible)?.id || null;
+  }
+
+  if (visible && !state.selectedId) {
+    state.selectedId = routes[0].id;
+  }
+
+  scheduleRoutesRender();
+  renderSidebar();
+
+  try {
+    for (const route of routes) {
+      await persistRoute(route, { visible });
+    }
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 async function saveRouteDetails(event) {
   event.preventDefault();
 
@@ -849,6 +1305,8 @@ async function saveRouteDetails(event) {
   if (!route) {
     return;
   }
+
+  const previousGroupType = routeGroupType(route);
 
   const formData = new FormData(form);
   const patch = {
@@ -866,6 +1324,7 @@ async function saveRouteDetails(event) {
     const updated = await persistRoute(route, patch);
     Object.assign(route, normalizeSavedRoute(updated));
     applyGroupStyleToRoute(route);
+    await pruneEmptyRouteGroups([previousGroupType]);
     scheduleRoutesRender();
     closeFloatingMenu();
     renderSidebar();
@@ -881,9 +1340,12 @@ async function deleteRouteLayer(id) {
     return;
   }
 
+  const groupType = routeGroupType(route);
+
   try {
     await api(`/api/routes/${encodeURIComponent(id)}`, { method: 'DELETE' });
     state.routes = state.routes.filter((item) => item.id !== id);
+    await pruneEmptyRouteGroups([groupType]);
 
     if (state.selectedId === id) {
       state.selectedId = state.routes.find((item) => item.visible)?.id || state.routes[0]?.id || null;
@@ -894,6 +1356,22 @@ async function deleteRouteLayer(id) {
     renderSidebar();
   } catch (error) {
     console.error(error);
+  }
+}
+
+async function pruneEmptyRouteGroups(types = Object.keys(state.groupSettings)) {
+  const uniqueTypes = [...new Set(types)]
+    .filter((type) => state.groupSettings[type])
+    .filter((type) => !state.routes.some((route) => routeGroupType(route) === type));
+
+  for (const type of uniqueTypes) {
+    delete state.groupSettings[type];
+
+    try {
+      await api(`/api/group-settings/${encodeURIComponent(type)}`, { method: 'DELETE' });
+    } catch (error) {
+      console.warn('Empty group cleanup failed', error);
+    }
   }
 }
 
@@ -936,7 +1414,9 @@ async function deleteRouteGroup(type) {
   const routesToDelete = state.routes.filter((route) => routeGroupType(route) === type);
 
   try {
-    await Promise.all(routesToDelete.map((route) => api(`/api/routes/${encodeURIComponent(route.id)}`, { method: 'DELETE' })));
+    for (const route of routesToDelete) {
+      await api(`/api/routes/${encodeURIComponent(route.id)}`, { method: 'DELETE' });
+    }
 
     try {
       await api(`/api/group-settings/${encodeURIComponent(type)}`, { method: 'DELETE' });
@@ -981,8 +1461,10 @@ function openRouteMenu(routeId, anchor) {
   menu.innerHTML = routeMenuTemplate(route);
   initRouteTypeDropdown(menu);
   initRouteDatePicker(menu);
+  initBaseRouteMergeControl(menu);
   menu.querySelector('form').addEventListener('submit', saveRouteDetails);
   menu.querySelector('[data-route-delete]')?.addEventListener('click', () => deleteRouteLayer(routeId));
+  menu.querySelector('[data-base-route-merge]')?.addEventListener('click', () => mergeRouteWithBaseRoutes(routeId, menu));
   document.body.append(menu);
 
   state.openMenuRouteId = routeId;
@@ -991,6 +1473,41 @@ function openRouteMenu(routeId, anchor) {
   anchor.dataset.menuRouteId = routeId;
   anchor.setAttribute('aria-expanded', 'true');
   positionFloatingMenu();
+}
+
+function initBaseRouteMergeControl(menu) {
+  const options = [...menu.querySelectorAll('.base-route-option')];
+  const checkboxes = options.map((option) => option.querySelector('input')).filter(Boolean);
+  const action = menu.querySelector('[data-base-route-merge]');
+
+  if (!checkboxes.length || !action) {
+    return;
+  }
+
+  const sync = () => {
+    options.forEach((option) => {
+      const input = option.querySelector('input');
+      option.classList.toggle('is-selected', Boolean(input?.checked));
+    });
+    action.disabled = !checkboxes.some((input) => input.checked);
+  };
+
+  options.forEach((option) => {
+    const input = option.querySelector('input');
+
+    if (!input) {
+      return;
+    }
+
+    input.required = false;
+    input.tabIndex = -1;
+    option.addEventListener('click', (event) => {
+      event.preventDefault();
+      input.checked = !input.checked;
+      sync();
+    });
+  });
+  sync();
 }
 
 function toggleGroupMenu(type, anchor) {
@@ -1014,6 +1531,7 @@ function openGroupMenu(type, anchor) {
   menu.className = 'floating-menu group-menu-popover';
   menu.innerHTML = groupMenuTemplate(group);
   initGroupColorPicker(menu);
+  initGroupLineStyleDropdown(menu);
   initLineWidthControl(menu);
   menu.querySelector('form').addEventListener('submit', saveGroupDetails);
   menu.querySelector('[data-group-delete]')?.addEventListener('click', () => deleteRouteGroup(type));
@@ -1043,6 +1561,7 @@ function openCreateGroupMenu(anchor) {
   menu.className = 'floating-menu group-menu-popover';
   menu.innerHTML = groupMenuTemplate(group);
   initGroupColorPicker(menu);
+  initGroupLineStyleDropdown(menu);
   initLineWidthControl(menu);
   menu.querySelector('form').addEventListener('submit', saveGroupDetails);
   menu.querySelector('[data-group-delete]')?.addEventListener('click', () => deleteRouteGroup(group.type));
@@ -1131,6 +1650,74 @@ function initRouteTypeDropdown(menu) {
     const padding = 16;
     const contentHeight = options.length * optionHeight + Math.max(0, options.length - 1) * gap + padding;
     dropdown.style.setProperty('--type-dropdown-height', `${Math.min(contentHeight, 420)}px`);
+  };
+
+  const openDropdown = () => {
+    window.clearTimeout(closeTimer);
+    updateDropdownHeight();
+    dropdown.classList.remove('is-closing');
+    dropdown.classList.add('is-open');
+    trigger.setAttribute('aria-expanded', 'true');
+    positionFloatingMenu();
+  };
+
+  const closeDropdown = () => {
+    if (!dropdown.classList.contains('is-open')) {
+      return;
+    }
+
+    window.clearTimeout(closeTimer);
+    dropdown.classList.add('is-closing');
+    trigger.setAttribute('aria-expanded', 'false');
+    closeTimer = window.setTimeout(() => {
+      dropdown.classList.remove('is-open', 'is-closing');
+      positionFloatingMenu();
+    }, closeDuration);
+  };
+
+  trigger.addEventListener('click', () => {
+    if (dropdown.classList.contains('is-open') && !dropdown.classList.contains('is-closing')) {
+      closeDropdown();
+    } else {
+      openDropdown();
+    }
+  });
+
+  menu.addEventListener('click', (event) => {
+    if (!dropdown.contains(event.target)) {
+      closeDropdown();
+    }
+  });
+
+  options.forEach((option) => {
+    option.addEventListener('click', () => {
+      input.value = option.dataset.value;
+      trigger.querySelector('span').textContent = option.textContent;
+      options.forEach((item) => item.classList.toggle('is-selected', item === option));
+      closeDropdown();
+    });
+  });
+}
+
+function initGroupLineStyleDropdown(menu) {
+  const dropdown = menu.querySelector('.line-style-dropdown');
+  const trigger = dropdown?.querySelector('.type-dropdown-trigger');
+  const list = dropdown?.querySelector('.type-dropdown-list');
+  const options = [...(dropdown?.querySelectorAll('.type-dropdown-option') || [])];
+  const input = menu.querySelector('input[name="lineStyle"]');
+  const closeDuration = 520;
+  let closeTimer = null;
+
+  if (!dropdown || !trigger || !list || !input || !options.length) {
+    return;
+  }
+
+  const updateDropdownHeight = () => {
+    const optionHeight = 34;
+    const gap = 4;
+    const padding = 16;
+    const contentHeight = options.length * optionHeight + Math.max(0, options.length - 1) * gap + padding;
+    dropdown.style.setProperty('--type-dropdown-height', `${contentHeight}px`);
   };
 
   const openDropdown = () => {
@@ -1438,6 +2025,20 @@ function routeMenuTemplate(route) {
         </div>
       </div>
     </form>
+    ${baseRouteOptions.length ? `
+      <div class="base-route-merge">
+        <span class="base-route-merge-title">Base routes</span>
+        <div class="base-route-list">
+          ${baseRouteOptions.map((baseRoute) => `
+            <label class="base-route-option">
+              <input type="checkbox" name="baseRouteIds" value="${escapeAttribute(baseRoute.id)}" />
+              <span>${escapeHtml(baseRoute.name)}</span>
+            </label>
+          `).join('')}
+        </div>
+        <button class="base-route-merge-action" type="button" data-base-route-merge>Merge selected</button>
+      </div>
+    ` : ''}
   `;
 }
 
@@ -1474,10 +2075,16 @@ function groupMenuTemplate(group) {
       </label>
       <label>
         <span>Line style</span>
-        <select name="lineStyle">
-          <option value="solid"${group.lineStyle === 'solid' ? ' selected' : ''}>Solid</option>
-          <option value="dashed"${group.lineStyle === 'dashed' ? ' selected' : ''}>Dashed</option>
-        </select>
+        <input name="lineStyle" type="hidden" value="${escapeAttribute(group.lineStyle)}" required />
+        <div class="type-dropdown line-style-dropdown">
+          <button class="type-dropdown-trigger" type="button" aria-expanded="false">
+            <span>${group.lineStyle === 'dashed' ? 'Dashed' : 'Solid'}</span>
+          </button>
+          <div class="type-dropdown-list" aria-label="Choose line style">
+            <button class="type-dropdown-option${group.lineStyle === 'solid' ? ' is-selected' : ''}" type="button" data-value="solid">Solid</button>
+            <button class="type-dropdown-option${group.lineStyle === 'dashed' ? ' is-selected' : ''}" type="button" data-value="dashed">Dashed</button>
+          </div>
+        </div>
       </label>
       <div class="group-editor-actions">
         <span class="group-editor-meta">${group.count} ${pluralTrack(group.count)} · ${formatDistance(group.distanceKm)}</span>
@@ -1615,7 +2222,7 @@ function normalizeSavedRoute(route) {
     ...route,
     distanceKm: Number(route.distanceKm) || 0,
     routeDate: route.routeDate || todayInputDate(),
-    routeType: route.routeType || route.id,
+    routeType: route.routeType || unsortedGroupType,
     visible: route.visible !== false,
     bounds: route.bounds || null,
     feature: route.feature,
@@ -1701,11 +2308,21 @@ function formatDistance(value) {
 }
 
 function formatSummaryDistance(value) {
-  return Math.round(Number(value) || 0).toLocaleString('ru-RU');
+  return String(Math.round(Number(value) || 0));
 }
 
 function formatLayerDistance(value) {
-  return Math.round(Number(value) || 0).toLocaleString('ru-RU');
+  return String(Math.round(Number(value) || 0));
+}
+
+function formatLayerDate(value) {
+  const date = dateOrNull(value);
+
+  if (!date) {
+    return 'no date';
+  }
+
+  return `${date.getDate()} ${calendarMonths[date.getMonth()].slice(0, 3).toLowerCase()} ${date.getFullYear()}`;
 }
 
 function pluralTrack(count) {
@@ -1733,14 +2350,24 @@ function emptyCollection() {
 }
 
 function routeGroupType(route) {
-  return route.routeType || route.id;
+  return route.routeType || unsortedGroupType;
 }
 
 function routeGroupLabel(route) {
-  return state.groupSettings[routeGroupType(route)]?.label || route.name || routeGroupType(route);
+  const type = routeGroupType(route);
+
+  if (state.groupSettings[type]?.label || type === unsortedGroupType) {
+    return groupLabel(type);
+  }
+
+  return route.name || type;
 }
 
 function groupLabel(value) {
+  if (value === unsortedGroupType) {
+    return state.groupSettings[value]?.label || unsortedGroupLabel;
+  }
+
   return state.groupSettings[value]?.label || value;
 }
 

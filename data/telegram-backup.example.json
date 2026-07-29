@@ -1,0 +1,6 @@
+{
+  "botToken": "",
+  "chatId": "",
+  "intervalHours": 24,
+  "backupOnStart": false
+}

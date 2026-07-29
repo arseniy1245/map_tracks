@@ -12,12 +12,20 @@ const port = Number(process.env.PORT || 5173);
 
 const dataDir = path.join(__dirname, 'data');
 const uploadDir = path.join(dataDir, 'uploads');
-const routesFile = path.join(dataDir, 'routes.json');
+const routesDir = path.join(dataDir, 'routes');
+const routesIndexFile = path.join(dataDir, 'routes-index.json');
 const groupSettingsFile = path.join(dataDir, 'group-settings.json');
+const telegramBackupConfigFile = path.join(dataDir, 'telegram-backup.json');
 const distDir = path.join(__dirname, 'dist');
 const maxUploadBytes = 100 * 1024 * 1024;
+const unsortedGroupType = 'unsorted';
+let routesMutationQueue = Promise.resolve();
+let groupSettingsMutationQueue = Promise.resolve();
 
 await ensureStorage();
+const telegramBackupConfig = await readTelegramBackupConfig();
+const telegramBackupIntervalMs = Math.max(1, Number(process.env.TELEGRAM_BACKUP_INTERVAL_HOURS || telegramBackupConfig.intervalHours || 24)) * 60 * 60 * 1000;
+const telegramBackupOnStart = process.env.TELEGRAM_BACKUP_ON_START === 'true' || telegramBackupConfig.backupOnStart === true;
 
 const vite = isProduction
   ? null
@@ -57,6 +65,7 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(port, '127.0.0.1', () => {
   console.log(`Route map server: http://127.0.0.1:${port}/`);
+  scheduleTelegramBackups();
 });
 
 async function handleApi(request, response, url) {
@@ -96,6 +105,12 @@ async function handleApi(request, response, url) {
   }
 
   const routeMatch = url.pathname.match(/^\/api\/routes\/([^/]+)$/);
+  if (routeMatch && request.method === 'PUT') {
+    const updatedRoute = await replaceRouteContent(decodeURIComponent(routeMatch[1]), request);
+    sendJson(response, updatedRoute);
+    return;
+  }
+
   if (routeMatch && request.method === 'PATCH') {
     const updatedRoute = await updateRoute(decodeURIComponent(routeMatch[1]), request);
     sendJson(response, updatedRoute);
@@ -109,6 +124,75 @@ async function handleApi(request, response, url) {
   }
 
   sendError(response, 404, 'API endpoint not found');
+}
+
+function scheduleTelegramBackups() {
+  if (!telegramBackupsEnabled()) {
+    console.log('Telegram backups disabled: fill data/telegram-backup.json or set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.');
+    return;
+  }
+
+  if (telegramBackupOnStart) {
+    sendTelegramBackup().catch((error) => {
+      console.error('Telegram backup failed', error);
+    });
+  }
+
+  const timer = setInterval(() => {
+    sendTelegramBackup().catch((error) => {
+      console.error('Telegram backup failed', error);
+    });
+  }, telegramBackupIntervalMs);
+
+  timer.unref?.();
+  console.log(`Telegram backups enabled: every ${telegramBackupIntervalMs / 60 / 60 / 1000}h.`);
+}
+
+function telegramBackupsEnabled() {
+  return Boolean(telegramBotToken() && telegramChatId());
+}
+
+function telegramBotToken() {
+  return process.env.TELEGRAM_BOT_TOKEN || telegramBackupConfig.botToken;
+}
+
+function telegramChatId() {
+  return process.env.TELEGRAM_CHAT_ID || telegramBackupConfig.chatId;
+}
+
+async function sendTelegramBackup() {
+  await Promise.all([
+    routesMutationQueue.catch(() => {}),
+    groupSettingsMutationQueue.catch(() => {}),
+  ]);
+
+  const createdAt = new Date();
+  const routes = await readRoutes();
+  const groupSettings = await readGroupSettings();
+  const backup = {
+    createdAt: createdAt.toISOString(),
+    app: 'map-routes-viewer',
+    routes,
+    groupSettings,
+  };
+  const backupText = `${JSON.stringify(backup, null, 2)}\n`;
+  const filename = `map-routes-backup-${createdAt.toISOString().replaceAll(':', '-').replace(/\.\d{3}Z$/, 'Z')}.json`;
+  const form = new FormData();
+
+  form.append('chat_id', telegramChatId());
+  form.append('caption', `Routes backup: ${routes.length} route${routes.length === 1 ? '' : 's'}`);
+  form.append('document', new Blob([backupText], { type: 'application/json' }), filename);
+
+  const response = await fetch(`https://api.telegram.org/bot${telegramBotToken()}/sendDocument`, {
+    method: 'POST',
+    body: form,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Telegram API error ${response.status}: ${await response.text()}`);
+  }
+
+  console.log(`Telegram backup sent: ${filename}`);
 }
 
 async function createRoute(request) {
@@ -130,110 +214,210 @@ async function createRoute(request) {
 
   normalized.storedFileName = await makeStoredFileName(normalized.routeDate, normalized.name, extension);
   normalized.downloadUrl = `/uploads/${encodeURIComponent(normalized.storedFileName)}`;
+  normalized.geometryFile = routeGeometryFileName(normalized.id);
 
   await fs.writeFile(path.join(uploadDir, normalized.storedFileName), file.content);
+  await writeRouteFeature(normalized);
 
-  const routes = await readRoutes();
-  routes.push(normalized);
-  await writeRoutes(routes);
+  await updateRoutes((routes) => {
+    routes.push(routeIndexRecord(normalized));
+    return normalized;
+  });
   return normalized;
 }
 
 async function updateRoute(id, request) {
   const patch = await readJsonBody(request);
-  const routes = await readRoutes();
-  const route = routes.find((item) => item.id === id);
+  let previousRouteType = null;
 
-  if (!route) {
-    throw new HttpError(404, 'Route not found');
+  const updatedRoute = await updateRoutes(async (routes) => {
+    const route = routes.find((item) => item.id === id);
+
+    if (!route) {
+      throw new HttpError(404, 'Route not found');
+    }
+
+    const previousFileName = route.storedFileName;
+    previousRouteType = route.routeType;
+
+    if (typeof patch.name === 'string' && patch.name.trim()) {
+      route.name = patch.name.trim();
+    }
+
+    if (typeof patch.routeDate === 'string' && patch.routeDate) {
+      route.routeDate = normalizeDate(patch.routeDate);
+    }
+
+    if (typeof patch.routeType === 'string' && patch.routeType) {
+      route.routeType = patch.routeType;
+    }
+
+    if (Number.isFinite(Number(patch.distanceKm))) {
+      route.distanceKm = Math.max(0, Number(patch.distanceKm));
+    }
+
+    if (typeof patch.visible === 'boolean') {
+      route.visible = patch.visible;
+    }
+
+    const extension = getExtension(previousFileName || route.originalFileName || route.fileType);
+    const desiredName = buildStoredFileName(route.routeDate, route.name, extension);
+    if (previousFileName && previousFileName !== desiredName) {
+      route.storedFileName = await makeStoredFileName(route.routeDate, route.name, extension, previousFileName);
+      route.downloadUrl = `/uploads/${encodeURIComponent(route.storedFileName)}`;
+      await renameUpload(previousFileName, route.storedFileName);
+    }
+
+    await patchRouteFeatureProperties(route);
+    return route;
+  });
+
+  await pruneEmptyGroupSettings([previousRouteType]);
+  return readRouteWithFeature(updatedRoute);
+}
+
+async function replaceRouteContent(id, request) {
+  const { fields, files } = await parseMultipart(request);
+  const patch = JSON.parse(fields.route || '{}');
+  const file = files.file;
+  let previousRouteType = null;
+
+  if (!file) {
+    throw new Error('Route file is required');
   }
 
-  const previousFileName = route.storedFileName;
+  const updatedRoute = await updateRoutes(async (routes) => {
+    const route = routes.find((item) => item.id === id);
 
-  if (typeof patch.name === 'string' && patch.name.trim()) {
-    route.name = patch.name.trim();
-  }
+    if (!route) {
+      throw new HttpError(404, 'Route not found');
+    }
 
-  if (typeof patch.routeDate === 'string' && patch.routeDate) {
-    route.routeDate = normalizeDate(patch.routeDate);
-  }
+    const previousFileName = route.storedFileName;
+    const previousExtension = getExtension(previousFileName || route.originalFileName || route.fileType);
+    const extension = getExtension(file.filename || patch.originalFileName || route.originalFileName || route.fileType);
+    previousRouteType = route.routeType;
 
-  if (typeof patch.routeType === 'string' && patch.routeType) {
-    route.routeType = patch.routeType;
-  }
+    const normalized = normalizeRoute({
+      ...route,
+      ...patch,
+      id: route.id,
+      name: route.name,
+      color: route.color,
+      routeDate: route.routeDate,
+      routeType: route.routeType,
+      visible: route.visible !== false,
+      uploadedAt: route.uploadedAt,
+      originalFileName: file.filename || patch.originalFileName || route.originalFileName || `route.${extension}`,
+      geometryFile: route.geometryFile || routeGeometryFileName(route.id),
+    });
 
-  if (Number.isFinite(Number(patch.distanceKm))) {
-    route.distanceKm = Math.max(0, Number(patch.distanceKm));
-  }
+    if (previousFileName && previousExtension === extension) {
+      normalized.storedFileName = previousFileName;
+    } else {
+      normalized.storedFileName = await makeStoredFileName(normalized.routeDate, normalized.name, extension, previousFileName);
+      await removeUpload(previousFileName);
+    }
 
-  if (typeof patch.visible === 'boolean') {
-    route.visible = patch.visible;
-  }
+    normalized.downloadUrl = `/uploads/${encodeURIComponent(normalized.storedFileName)}`;
+    normalized.geometryFile = route.geometryFile || routeGeometryFileName(route.id);
 
-  if (route.feature?.properties) {
-    route.feature.properties.name = route.name;
-    route.feature.properties.routeType = route.routeType;
-  }
+    await fs.writeFile(path.join(uploadDir, normalized.storedFileName), file.content);
+    await writeRouteFeature(normalized);
+    Object.assign(route, routeIndexRecord(normalized));
+    return route;
+  });
 
-  const extension = getExtension(previousFileName || route.originalFileName || route.fileType);
-  const desiredName = buildStoredFileName(route.routeDate, route.name, extension);
-  if (previousFileName && previousFileName !== desiredName) {
-    route.storedFileName = await makeStoredFileName(route.routeDate, route.name, extension, previousFileName);
-    route.downloadUrl = `/uploads/${encodeURIComponent(route.storedFileName)}`;
-    await renameUpload(previousFileName, route.storedFileName);
-  }
-
-  await writeRoutes(routes);
-  return route;
+  await pruneEmptyGroupSettings([previousRouteType]);
+  return readRouteWithFeature(updatedRoute);
 }
 
 async function deleteRoute(id) {
-  const routes = await readRoutes();
-  const route = routes.find((item) => item.id === id);
-  const nextRoutes = routes.filter((item) => item.id !== id);
+  let routeType = null;
 
-  if (route?.storedFileName) {
-    await removeUpload(route.storedFileName);
-  }
+  await updateRoutes(async (routes) => {
+    const route = routes.find((item) => item.id === id);
+    routeType = route?.routeType || null;
 
-  await writeRoutes(nextRoutes);
+    if (route?.storedFileName) {
+      await removeUpload(route.storedFileName);
+    }
+    if (route) {
+      await removeRouteFeature(route);
+    }
+
+    return routes.filter((item) => item.id !== id);
+  });
+
+  await pruneEmptyGroupSettings([routeType]);
 }
 
 async function clearRoutes() {
-  const routes = await readRoutes();
-  await Promise.all(routes.map((route) => removeUpload(route.storedFileName)));
-  await writeRoutes([]);
+  await updateRoutes(async (routes) => {
+    await Promise.all(routes.map((route) => Promise.all([
+      removeUpload(route.storedFileName),
+      removeRouteFeature(route),
+    ])));
+    return [];
+  });
+  await updateGroupSettingsFile((settings) => {
+    Object.keys(settings).forEach((type) => {
+      delete settings[type];
+    });
+  });
 }
 
 async function updateGroupSettings(type, request) {
   const patch = await readJsonBody(request);
-  const settings = await readGroupSettings();
-  const current = settings[type] || {};
 
-  settings[type] = {
-    ...current,
-    label: normalizeOptionalString(patch.label, current.label || type),
-    color: normalizeColor(patch.color, current.color),
-    lineWidth: normalizeLineWidth(patch.lineWidth, current.lineWidth),
-    lineStyle: normalizeLineStyle(patch.lineStyle, current.lineStyle),
-  };
+  return updateGroupSettingsFile((settings) => {
+    const current = settings[type] || {};
 
-  await writeGroupSettings(settings);
-  return settings[type];
+    settings[type] = {
+      ...current,
+      label: normalizeOptionalString(patch.label, current.label || type),
+      color: normalizeColor(patch.color, current.color),
+      lineWidth: normalizeLineWidth(patch.lineWidth, current.lineWidth),
+      lineStyle: normalizeLineStyle(patch.lineStyle, current.lineStyle),
+    };
+
+    return settings[type];
+  });
 }
 
 async function deleteGroupSettings(type) {
-  const settings = await readGroupSettings();
-  delete settings[type];
-  await writeGroupSettings(settings);
+  await updateGroupSettingsFile((settings) => {
+    delete settings[type];
+  });
+}
+
+async function pruneEmptyGroupSettings(types) {
+  const uniqueTypes = [...new Set(types.filter(Boolean))];
+
+  if (!uniqueTypes.length) {
+    return;
+  }
+
+  const routes = await readRoutes();
+  const emptyTypes = uniqueTypes.filter((type) => !routes.some((route) => route.routeType === type));
+
+  if (!emptyTypes.length) {
+    return;
+  }
+
+  await updateGroupSettingsFile((settings) => {
+    emptyTypes.forEach((type) => {
+      delete settings[type];
+    });
+  });
 }
 
 function normalizeRoute(route) {
   const name = String(route.name || 'route').trim() || 'route';
   const routeDate = normalizeDate(route.routeDate || route.date);
-  const routeType = String(route.routeType || route.id || randomUUID());
+  const routeType = String(route.routeType || unsortedGroupType);
 
-  return {
+  const normalized = {
     ...route,
     name,
     routeDate,
@@ -241,6 +425,107 @@ function normalizeRoute(route) {
     distanceKm: Number.isFinite(Number(route.distanceKm)) ? Number(route.distanceKm) : 0,
     visible: route.visible !== false,
   };
+
+  if (normalized.feature?.properties) {
+    normalized.feature.properties.routeType = routeType;
+  }
+
+  return normalized;
+}
+
+function routeIndexRecord(route) {
+  const { feature, ...metadata } = route;
+  return {
+    ...metadata,
+    geometryFile: route.geometryFile || routeGeometryFileName(route.id),
+  };
+}
+
+async function readRouteWithFeature(route) {
+  return {
+    ...route,
+    feature: await readRouteFeature(route),
+  };
+}
+
+async function readRouteFeature(route) {
+  try {
+    const feature = JSON.parse(await fs.readFile(routeGeometryPath(route), 'utf8'));
+
+    if (feature?.properties) {
+      feature.properties.id = route.id;
+      feature.properties.name = route.name;
+      feature.properties.color = route.color;
+      feature.properties.routeType = route.routeType;
+    }
+
+    return feature;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return emptyRouteFeature(route);
+    }
+
+    throw error;
+  }
+}
+
+async function writeRouteFeature(route) {
+  await ensureStorage();
+  const feature = route.feature || emptyRouteFeature(route);
+
+  if (feature.properties) {
+    feature.properties.id = route.id;
+    feature.properties.name = route.name;
+    feature.properties.color = route.color;
+    feature.properties.routeType = route.routeType;
+  }
+
+  await writeJsonFile(routeGeometryPath(route), feature);
+}
+
+async function patchRouteFeatureProperties(route) {
+  const feature = await readRouteFeature(route);
+
+  feature.id = route.id;
+  feature.properties = {
+    ...(feature.properties || {}),
+    id: route.id,
+    name: route.name,
+    color: route.color,
+    routeType: route.routeType,
+  };
+
+  await writeJsonFile(routeGeometryPath(route), feature);
+}
+
+async function removeRouteFeature(route) {
+  await fs.rm(routeGeometryPath(route), { force: true });
+}
+
+function emptyRouteFeature(route) {
+  return {
+    type: 'Feature',
+    id: route.id,
+    properties: {
+      id: route.id,
+      name: route.name,
+      color: route.color,
+      routeType: route.routeType,
+      isSelected: false,
+    },
+    geometry: {
+      type: 'LineString',
+      coordinates: [],
+    },
+  };
+}
+
+function routeGeometryFileName(id) {
+  return `${sanitizeFileSegment(id)}.geojson`;
+}
+
+function routeGeometryPath(route) {
+  return path.join(routesDir, path.basename(route.geometryFile || routeGeometryFileName(route.id)));
 }
 
 async function parseMultipart(request) {
@@ -328,8 +613,13 @@ function readBody(request, limit) {
 }
 
 async function readRoutes() {
+  const routes = await readRouteIndex();
+  return Promise.all(routes.map(readRouteWithFeature));
+}
+
+async function readRouteIndex() {
   try {
-    return JSON.parse(await fs.readFile(routesFile, 'utf8'));
+    return JSON.parse(await fs.readFile(routesIndexFile, 'utf8'));
   } catch (error) {
     if (error.code === 'ENOENT') {
       return [];
@@ -338,9 +628,36 @@ async function readRoutes() {
   }
 }
 
-async function writeRoutes(routes) {
+function updateRoutes(mutator) {
+  const operation = routesMutationQueue.then(async () => {
+    const routes = await readRouteIndex();
+    const result = await mutator(routes);
+    const nextRoutes = Array.isArray(result) ? result : routes;
+
+    await writeRouteIndex(nextRoutes);
+    return Array.isArray(result) ? undefined : result;
+  });
+
+  routesMutationQueue = operation.catch(() => {});
+  return operation;
+}
+
+function updateGroupSettingsFile(mutator) {
+  const operation = groupSettingsMutationQueue.then(async () => {
+    const settings = await readGroupSettings();
+    const result = await mutator(settings);
+
+    await writeGroupSettings(settings);
+    return result;
+  });
+
+  groupSettingsMutationQueue = operation.catch(() => {});
+  return operation;
+}
+
+async function writeRouteIndex(routes) {
   await ensureStorage();
-  await fs.writeFile(routesFile, `${JSON.stringify(routes, null, 2)}\n`, 'utf8');
+  await writeJsonFile(routesIndexFile, routes);
 }
 
 async function readGroupSettings() {
@@ -354,17 +671,38 @@ async function readGroupSettings() {
   }
 }
 
+async function readTelegramBackupConfig() {
+  try {
+    return JSON.parse(await fs.readFile(telegramBackupConfigFile, 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return {};
+    }
+
+    console.warn(`Telegram backup config ignored: ${error.message}`);
+    return {};
+  }
+}
+
 async function writeGroupSettings(settings) {
   await ensureStorage();
-  await fs.writeFile(groupSettingsFile, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+  await writeJsonFile(groupSettingsFile, settings);
+}
+
+async function writeJsonFile(filePath, value) {
+  const temporaryFile = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+
+  await fs.writeFile(temporaryFile, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  await fs.rename(temporaryFile, filePath);
 }
 
 async function ensureStorage() {
   await fs.mkdir(uploadDir, { recursive: true });
+  await fs.mkdir(routesDir, { recursive: true });
   try {
-    await fs.access(routesFile);
+    await fs.access(routesIndexFile);
   } catch {
-    await fs.writeFile(routesFile, '[]\n', 'utf8');
+    await fs.writeFile(routesIndexFile, '[]\n', 'utf8');
   }
   try {
     await fs.access(groupSettingsFile);

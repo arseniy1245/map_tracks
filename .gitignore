@@ -1,3 +1,18 @@
 node_modules/
 dist/
-data/
+
+# Local runtime data
+data/routes/
+data/uploads/
+data/routes-index.json
+data/group-settings.json
+
+# Secrets
+data/telegram-backup.json
+.env
+.env.*
+
+# Logs and local OS/editor files
+*.log
+.DS_Store
+Thumbs.db
