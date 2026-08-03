@@ -2,10 +2,10 @@ node_modules/
 dist/
 
 # Local runtime data
-# data/routes/
-# data/uploads/
-# data/routes-index.json
-# data/group-settings.json
+data/routes/
+data/uploads/
+data/routes-index.json
+data/group-settings.json
 old routes/
 
 # Secrets
