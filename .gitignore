@@ -2,6 +2,7 @@ node_modules/
 dist/
 
 # Local runtime data
+data
 data/routes/
 data/uploads/
 data/routes-index.json
