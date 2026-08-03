@@ -711,6 +711,14 @@ margin: 0;
   border-color: rgba(118, 152, 141, 0.52);
 }
 
+.route-card.is-focused {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.route-card.is-focused:hover {
+  background: rgba(0, 0, 0, 0.11);
+}
+
 .route-select {
   display: grid;
   position: relative;

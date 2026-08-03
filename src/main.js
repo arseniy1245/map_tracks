@@ -17,6 +17,7 @@ const unsortedGroupLabel = 'Unsorted';
 const colors = ['#2f3432', '#e4572e', '#3f7cac', '#a23e48', '#2e933c', '#7b2cbf', '#5f6f89', '#006d77'];
 const extendedColors = ['#1f2937', '#475569', '#0f766e', '#14b8a6', '#2563eb', '#38bdf8', '#9333ea', '#c084fc', '#be123c', '#f43f5e', '#b45309', '#f97316', '#ca8a04', '#eab308', '#4d7c0f', '#84cc16'];
 const grayscaleColors = ['#000000', '#242424', '#444444', '#666666', '#888888', '#aaaaaa', '#c6c6c6', '#e2e2e2'];
+const focusedRouteMutedColor = '#b4b8b5';
 const baseRouteOptions = Object.entries(baseRouteModules)
   .map(([filePath, url]) => {
     const fileName = filePath.split('/').pop();
@@ -114,6 +115,7 @@ const state = {
   routes: [],
   groupSettings: {},
   selectedId: null,
+  focusedRouteId: null,
   dataUpdateFrame: null,
   openMenuRouteId: null,
   openMenuGroupType: null,
@@ -261,6 +263,7 @@ function routeSolidLayerDefinition() {
     layout: {
       'line-cap': 'round',
       'line-join': 'round',
+      'line-sort-key': ['get', 'sortKey'],
     },
   };
 }
@@ -280,6 +283,7 @@ function routeDashedLayerDefinition() {
     layout: {
       'line-cap': 'butt',
       'line-join': 'round',
+      'line-sort-key': ['get', 'sortKey'],
     },
   };
 }
@@ -1023,17 +1027,19 @@ function renderRoutesOnMap() {
 
 function currentRouteFeatureCollection() {
   const selectedId = state.selectedId;
+  const visibleRoutes = state.routes.filter((route) => route.visible);
+  const focusedId = visibleRoutes.some((route) => route.id === state.focusedRouteId) ? state.focusedRouteId : null;
 
   return {
     type: 'FeatureCollection',
-    features: state.routes
-      .filter((route) => route.visible)
+    features: visibleRoutes
       .map((route) => ({
         ...route.feature,
         properties: {
           ...route.feature.properties,
-          ...routeRenderProperties(route),
+          ...focusedRouteRenderProperties(route, focusedId),
           isSelected: route.id === selectedId,
+          sortKey: route.id === focusedId ? 1 : 0,
         },
       })),
   };
@@ -1114,7 +1120,8 @@ function routeSortTime(value) {
 function renderRouteCard(route) {
   const item = document.createElement('div');
   const isSelected = route.id === state.selectedId;
-  item.className = `route-card${isSelected ? ' is-selected' : ''}`;
+  const isFocused = route.id === state.focusedRouteId;
+  item.className = `route-card${isSelected ? ' is-selected' : ''}${isFocused ? ' is-focused' : ''}`;
 
   const button = document.createElement('button');
   button.className = 'route-select';
@@ -1232,7 +1239,9 @@ function routeGroupOptions() {
 }
 
 function selectRoute(id) {
+  const isFocused = state.focusedRouteId === id;
   state.selectedId = id;
+  state.focusedRouteId = isFocused ? null : id;
   const route = state.routes.find((item) => item.id === id);
   if (route && !route.visible) {
     route.visible = true;
@@ -1256,6 +1265,10 @@ async function toggleRouteVisibility(id, visible) {
 
   if (!visible && state.selectedId === id) {
     state.selectedId = state.routes.find((item) => item.visible)?.id || null;
+  }
+
+  if (!visible && state.focusedRouteId === id) {
+    state.focusedRouteId = null;
   }
 
   if (visible) {
@@ -1285,6 +1298,10 @@ async function toggleRouteGroupVisibility(type, visible) {
 
   if (!visible && routes.some((route) => route.id === state.selectedId)) {
     state.selectedId = state.routes.find((route) => route.visible)?.id || null;
+  }
+
+  if (!visible && routes.some((route) => route.id === state.focusedRouteId)) {
+    state.focusedRouteId = null;
   }
 
   if (visible && !state.selectedId) {
@@ -1355,6 +1372,10 @@ async function deleteRouteLayer(id) {
 
     if (state.selectedId === id) {
       state.selectedId = state.routes.find((item) => item.visible)?.id || state.routes[0]?.id || null;
+    }
+
+    if (state.focusedRouteId === id) {
+      state.focusedRouteId = null;
     }
 
     scheduleRoutesRender();
@@ -1435,6 +1456,10 @@ async function deleteRouteGroup(type) {
 
     if (!state.routes.some((route) => route.id === state.selectedId)) {
       state.selectedId = state.routes.find((route) => route.visible)?.id || state.routes[0]?.id || null;
+    }
+
+    if (!state.routes.some((route) => route.id === state.focusedRouteId)) {
+      state.focusedRouteId = null;
     }
 
     scheduleRoutesRender();
@@ -2439,6 +2464,14 @@ function routeRenderProperties(route) {
     isDashed: groupLineStyle(route.routeType) === 'dashed',
     routeType: route.routeType,
   };
+}
+
+function focusedRouteRenderProperties(route, focusedId) {
+  const properties = routeRenderProperties(route);
+
+  return focusedId && route.id !== focusedId
+    ? { ...properties, color: focusedRouteMutedColor }
+    : properties;
 }
 
 function applyGroupStyleToRoute(route) {
