@@ -890,8 +890,13 @@ function parseGpx(text) {
   const segments = [...doc.querySelectorAll('trkseg')]
     .map((segment) => [...segment.querySelectorAll('trkpt')].map(parseGpxPoint).filter(Boolean))
     .filter((segment) => segment.length > 1);
+  const routeSegments = [...doc.querySelectorAll('rte')]
+    .map((route) => [...route.querySelectorAll('rtept')].map(parseGpxPoint).filter(Boolean))
+    .filter((segment) => segment.length > 1);
 
-  if (!segments.length) {
+  segments.push(...routeSegments);
+
+  if (!segments.length && doc.querySelector('rtept')) {
     const route = [...doc.querySelectorAll('rtept')].map(parseGpxPoint).filter(Boolean);
     if (route.length > 1) {
       segments.push(route);

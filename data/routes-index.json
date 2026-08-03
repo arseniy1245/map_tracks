@@ -2046,5 +2046,31 @@
     "totalTime": "",
     "averageSpeed": "",
     "weight": 1
+  },
+  {
+    "id": "a6dd6f35-4c26-4662-ae1d-f72e09535407",
+    "name": "Импорт из «9afe9c77-beac-4c47-9273-d3cdfb78149e.gpx»_03-08-2026_14-01-27",
+    "color": "#2f3432",
+    "fileType": "GPX",
+    "routeDate": "2026-08-03",
+    "routeType": "unsorted",
+    "visible": true,
+    "originalFileName": "Импорт из «9afe9c77-beac-4c47-9273-d3cdfb78149e.gpx»_03-08-2026_14-01-27.gpx",
+    "distanceKm": 45.10430941845002,
+    "ascentM": 0,
+    "descentM": 0,
+    "bounds": [
+      37.48733951154214,
+      55.74933905292147,
+      37.7280999,
+      55.89061
+    ],
+    "startedAt": null,
+    "finishedAt": null,
+    "pointCount": 1144,
+    "uploadedAt": "2026-08-03T11:04:44.897Z",
+    "storedFileName": "2026_08_03_Импорт_из_«9afe9c77-beac-4c47-9273-d3cdfb78149e.gpx»_03-08-2026_14-01-27.gpx",
+    "downloadUrl": "/uploads/2026_08_03_%D0%98%D0%BC%D0%BF%D0%BE%D1%80%D1%82_%D0%B8%D0%B7_%C2%AB9afe9c77-beac-4c47-9273-d3cdfb78149e.gpx%C2%BB_03-08-2026_14-01-27.gpx",
+    "geometryFile": "a6dd6f35-4c26-4662-ae1d-f72e09535407.geojson"
   }
 ]
